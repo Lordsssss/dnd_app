@@ -1,0 +1,4 @@
+{ "condition": [
+  { "name": "Poisoned", "source": "XPHB", "entries": ["Test fixture text: {@b Ability Checks and Attacks Affected.} You have {@variantrule Disadvantage|XPHB} on attack rolls and ability checks."] },
+  { "name": "Poisoned", "source": "PHB", "entries": ["Older fixture text."] }
+] }

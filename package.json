@@ -1,0 +1,27 @@
+{
+  "name": "dnd-table",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Self-hosted D&D 5e table: live character sheets, campaigns, a DM map with fog and initiative, a world map, French and English.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "cli": "node --disable-warning=ExperimentalWarning server/cli.js",
+    "5etools": "node --disable-warning=ExperimentalWarning server/cli.js fetch-5etools",
+    "i18n": "node tools/i18n-extract.mjs --count",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "htm": "3.1.1",
+    "preact": "10.29.8",
+    "qrcode-generator": "1.4.4",
+    "ws": "8.22.0"
+  },
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "preact-render-to-string": "^6.5.13"
+  }
+}

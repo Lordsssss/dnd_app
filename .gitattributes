@@ -1,0 +1,4 @@
+# Données 5etools : copie brute du miroir, mise à jour par `npm run 5etools`.
+# Pas de diff ligne à ligne dans git, et pas comptées comme du code sur GitHub.
+5etools/** -diff linguist-vendored
+maps/*.state.json -diff

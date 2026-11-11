@@ -1,0 +1,29 @@
+name: Tests
+
+# Sur chaque pull request, et avant chaque déploiement (appelé par deploy.yml).
+on:
+  pull_request:
+  push:
+    branches-ignore: [dev, prod]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - name: Syntax check of the browser code
+        run: for f in public/app/*.js public/map/*.js public/map/tools/*.js public/world/*.js shared/*.js shared/map/*.js; do node --check "$f"; done
+      - name: Shell scripts
+        run: for f in scripts/*.sh; do bash -n "$f"; done
+      - name: Untranslated strings
+        run: npm run i18n

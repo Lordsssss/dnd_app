@@ -1,0 +1,8 @@
+node_modules/
+data/
+backups/
+config.json
+5etools
+5etools/
+*.tmp-*
+.claude/

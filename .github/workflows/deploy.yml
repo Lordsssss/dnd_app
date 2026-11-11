@@ -1,0 +1,51 @@
+name: Deploy
+
+# Une pull request fusionnée dans dev part sur l'instance de test (staging),
+# une pull request fusionnée dans prod part en production. Les tests passent d'abord.
+# Les forks n'ont jamais accès aux secrets : seul un push sur dev ou prod déploie.
+on:
+  push:
+    branches: [dev, prod]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  deploy:
+    needs: test
+    if: github.ref_name == 'dev' || github.ref_name == 'prod'
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.ref_name == 'prod' && 'production' || 'staging' }}
+      url: ${{ vars.APP_URL }}
+    steps:
+      - name: Deploy over SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          TARGET: ${{ github.ref_name == 'prod' && 'production' || 'staging' }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SSH_KEY" ] || [ -z "$KNOWN_HOSTS" ] || [ -z "$HOST" ]; then
+            echo "::error::Secrets DEPLOY_SSH_KEY, DEPLOY_KNOWN_HOSTS and DEPLOY_HOST are required (docs/DEPLOY.md)"
+            exit 1
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy
+          chmod 600 ~/.ssh/deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # La clé ne peut lancer que le script de déploiement du serveur : on lui dit quoi et quel commit.
+          ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o BatchMode=yes \
+            "$HOST" "$TARGET $GITHUB_SHA"
+      - name: Forget the key
+        if: always()
+        run: rm -f ~/.ssh/deploy

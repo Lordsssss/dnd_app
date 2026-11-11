@@ -1,0 +1,14 @@
+# HTTPS automatique devant l'application. Remplace le nom de domaine.
+dnd.example.org {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:3000
+	# Envois d'images et de mondes : jusqu'à 60 Mo.
+	request_body {
+		max_size 64MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+	}
+}

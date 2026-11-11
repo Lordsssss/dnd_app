@@ -1,0 +1,47 @@
+# Modèle du service systemd. scripts/install-service.sh remplace les @…@ et l'installe dans
+# /etc/systemd/system/@SERVICE@.service. Caddy fait le HTTPS devant (voir Caddyfile).
+# Redémarrer sans sudo après une mise à jour : kill -USR2 $(systemctl show @SERVICE@ -p MainPID --value)
+# (le service enregistre, sort avec le code 75, et systemd le relance).
+[Unit]
+Description=D&D Table (@SERVICE@)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@GROUP@
+WorkingDirectory=@APP@
+ExecStart=@NODE@ --disable-warning=ExperimentalWarning server/index.js
+Environment=NODE_ENV=production
+Environment=DND_TABLE_CONFIG=@DATA@/config.json
+KillSignal=SIGINT
+TimeoutStopSec=20
+Restart=on-failure
+RestartSec=3
+MemoryMax=600M
+
+# Le code en lecture seule ; les données, et le coffre Obsidian s'il y a un pont, en écriture.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=tmpfs
+BindReadOnlyPaths=@APP@
+BindPaths=@WRITABLE@
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,8 @@
+{ "xphb": {
+  "shield": { "class": { "XPHB": { "Sorcerer": true, "Wizard": true } } },
+  "detect magic": { "class": { "XPHB": { "Wizard": true, "Cleric": true } } },
+  "fireball": { "class": { "XPHB": { "Wizard": true, "Sorcerer": true } } },
+  "hold person": { "class": { "XPHB": { "Wizard": true, "Warlock": true } } },
+  "fire bolt": { "class": { "XPHB": { "Wizard": true, "Sorcerer": true } } },
+  "hex": { "class": { "XPHB": { "Warlock": true } } }
+} }

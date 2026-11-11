@@ -1,0 +1,4 @@
+{ "baseitem": [
+  { "name": "Longbow", "source": "XPHB", "weight": 2, "type": "R|XPHB", "dmg1": "1d8", "dmgType": "P", "entries": [] },
+  { "name": "Rope", "source": "XPHB", "weight": 5, "type": "G|XPHB", "entries": ["Test fixture text: 50 feet of rope."] }
+] }

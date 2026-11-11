@@ -1,0 +1,123 @@
+/* Carte du monde */
+body.world-page { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink); }
+.world-page .boot { padding: 40px; text-align: center; color: var(--ink-2); }
+.w-app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+
+.w-top {
+  position: relative; display: flex; align-items: center; gap: 10px; padding: 6px 10px; min-height: 46px; flex-wrap: wrap;
+  background: var(--bar); color: var(--bar-ink); box-shadow: 0 2px 8px rgba(0, 0, 0, .3); z-index: 5;
+}
+.w-home { color: var(--bar-ink); text-decoration: none; font-size: 20px; padding: 0 4px; }
+.w-title { display: flex; flex-direction: column; line-height: 1.1; }
+.w-title b { font: 400 18px "Almendra SC", Georgia, serif; letter-spacing: .02em; }
+.w-title small { color: rgba(255, 255, 255, .6); font-size: 11px; }
+.w-top .grow { flex: 1; }
+.w-tools { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.w-top .btn { background: var(--bar-2); color: var(--bar-ink); border-color: rgba(255, 240, 210, .25); }
+.w-top .btn.on { background: var(--bar-ink); color: var(--bar); }
+.w-layers {
+  position: absolute; right: 10px; top: 100%; margin-top: 4px; display: grid; gap: 6px; padding: 10px 14px;
+  background: var(--paper-2); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow);
+}
+
+.w-search { position: relative; width: min(320px, 46vw); }
+.w-search .txt { width: 100%; border: 1px solid rgba(255, 240, 210, .25); border-radius: 8px; background: var(--bar-2); color: var(--bar-ink); padding: 6px 10px; min-height: 32px; font-size: 14px; }
+.w-results {
+  position: absolute; left: 0; right: 0; top: 100%; margin: 4px 0 0; padding: 4px; list-style: none; max-height: 60vh; overflow: auto;
+  background: var(--paper-2); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); z-index: 10;
+}
+.w-results button { display: flex; justify-content: space-between; gap: 10px; width: 100%; border: 0; background: none; color: var(--ink); padding: 7px 8px; border-radius: 5px; text-align: left; cursor: pointer; }
+.w-results button:hover { background: var(--paper-3); }
+.w-results small { color: var(--ink-2); white-space: nowrap; }
+
+.w-main { position: relative; flex: 1; display: flex; min-height: 0; }
+.w-stage { position: relative; flex: 1; overflow: hidden; background: #dfe9f2; touch-action: none; cursor: grab; user-select: none; }
+.w-stage.panning { cursor: grabbing; }
+.w-stage.mode-add, .w-stage.mode-party, .w-stage[class*="mode-move"] { cursor: crosshair; }
+.w-base, .w-base svg, .w-over { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* Seules les zones des États et des provinces captent le clic ; la côte, les routes et les noms le laissent passer. */
+.w-base svg * { pointer-events: none; }
+.w-base svg #statesBody path, .w-base svg #provincesBody path { pointer-events: all; cursor: pointer; }
+.w-over { pointer-events: none; overflow: visible; }
+.w-over [data-key] { pointer-events: auto; cursor: pointer; }
+
+.w-burg circle, .w-burg rect { fill: #fffdf6; stroke: #2b2b33; }
+.w-burg.g-capital rect { fill: #f3e2b3; }
+.w-burg.known circle, .w-burg.known rect { fill: #ffd24a; }
+.w-burg text, .w-lake text, .w-added text {
+  text-anchor: middle; fill: #26262e; stroke: rgba(255, 255, 255, .85); paint-order: stroke; stroke-linejoin: round;
+  font-family: "Almendra SC", Georgia, serif;
+}
+.w-burg.g-capital text { font-weight: 700; }
+.w-lake text { fill: #1d4f86; font-style: italic; }
+.w-added path { fill: #c0392b; stroke: #fff; }
+.w-added.known path { fill: #e67e22; }
+.w-marker circle { fill: rgba(255, 255, 255, .9); stroke: #6a5a3a; }
+.w-marker text { text-anchor: middle; }
+.w-party path { fill: #e40712; stroke: #fff; }
+.w-party text { text-anchor: middle; fill: #fff; }
+.w-over .sel circle, .w-over .sel rect, .w-over .sel path { stroke: #e40712; }
+.w-over .sel text { fill: #b0000a; }
+
+.w-banner {
+  position: absolute; left: 50%; top: 10px; transform: translateX(-50%); padding: 7px 12px; border-radius: 8px;
+  background: rgba(20, 24, 30, .9); color: #fff; font-size: 13px; display: flex; gap: 10px; align-items: center; z-index: 3;
+}
+.w-scale {
+  position: absolute; left: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 3px; padding: 5px 8px;
+  background: rgba(255, 255, 255, .8); color: #222; border-radius: 6px; font-size: 11px; pointer-events: none;
+}
+.w-scale span { display: block; height: 5px; border: 1.5px solid #222; border-top: 0; }
+
+.w-card {
+  width: min(380px, 100%); flex: none; overflow-y: auto; padding: 14px 16px 24px; background: var(--paper);
+  border-left: 1px solid var(--line); box-shadow: -4px 0 14px rgba(0, 0, 0, .2);
+}
+.w-card header { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+.w-card h2 { margin: 2px 0 4px; font: 400 24px "Almendra SC", Georgia, serif; line-height: 1.15; }
+.w-kind { margin: 0; font: 800 11px var(--f-lab); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); }
+.w-known { color: var(--good); }
+.w-facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 12px 0; font-size: 14px; }
+.w-facts dt { color: var(--ink-2); font-weight: 600; }
+.w-facts dd { margin: 0; }
+.w-chips { display: flex; flex-wrap: wrap; gap: 4px 8px; }
+.w-pub { margin: 12px 0; padding: 10px 12px; border-radius: 8px; background: var(--paper-2); font-size: 14px; line-height: 1.45; }
+.w-pub p { margin: 0 0 6px; }
+.w-edit { display: grid; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.w-field { display: grid; gap: 4px; font: 700 11px var(--f-lab); text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2); }
+.w-field .txt { font: 500 14px var(--f-val); text-transform: none; letter-spacing: 0; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; background: var(--paper-2); padding: 6px 8px; }
+.w-field textarea.txt { resize: vertical; line-height: 1.4; }
+.w-edit .row-btns { align-items: flex-end; }
+
+.w-note { margin: 4px 0 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper-2); font-size: 13.5px; line-height: 1.45; max-height: 50vh; overflow: auto; }
+.md h3, .md h4, .md h5 { margin: 12px 0 6px; font-family: Georgia, serif; }
+.md h3 { font-size: 18px; } .md h4 { font-size: 16px; } .md h5 { font-size: 14px; }
+.md p { margin: 0 0 8px; }
+.md ul, .md ol { margin: 0 0 8px; padding-left: 20px; }
+.md table { border-collapse: collapse; margin: 6px 0 10px; font-size: 12.5px; }
+.md th, .md td { border: 1px solid var(--line); padding: 3px 6px; text-align: left; vertical-align: top; }
+.md .wl { color: var(--gold); font-weight: 600; }
+.md a { color: var(--blue); }
+.md .callout { margin: 8px 0; padding: 8px 10px; border-left: 3px solid var(--blue); border-radius: 4px; background: rgba(90, 169, 255, .08); }
+.md .callout.c-warning, .md .callout.c-bug { border-color: var(--warn); background: rgba(242, 163, 58, .1); }
+.md .callout.c-danger { border-color: var(--danger); background: rgba(255, 90, 79, .08); }
+.md .c-title { font-weight: 700; margin-bottom: 4px; }
+
+.w-toasts { position: fixed; right: 14px; bottom: 14px; display: grid; gap: 6px; z-index: 20; }
+.w-toast { padding: 8px 12px; border-radius: 8px; background: var(--paper-2); border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 13px; max-width: 420px; }
+.w-toast.error { border-color: var(--danger); color: var(--danger); }
+
+@media (max-width: 760px) {
+  .w-main { flex-direction: column; }
+  .w-card { width: 100%; max-height: 52%; border-left: 0; border-top: 1px solid var(--line); box-shadow: 0 -4px 14px rgba(0, 0, 0, .2); }
+  .w-search { width: 100%; order: 5; }
+  .w-title small { display: none; }
+}
+
+/* Rework : carte en simple image, envoi d'une carte. */
+.w-img { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.w-upload { max-width: 560px; text-align: left; }
+.w-up { display: flex; flex-direction: column; gap: 14px; }
+.w-up-opt { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.w-up-opt p { margin: 0; }
+.w-up-opt a { color: var(--blue); }

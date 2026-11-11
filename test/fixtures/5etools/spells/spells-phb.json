@@ -1,0 +1,6 @@
+{ "spell": [
+  { "name": "Shield", "source": "PHB", "level": 1, "school": "A", "time": [{ "number": 1, "unit": "reaction" }],
+    "range": { "type": "point", "distance": { "type": "self" } }, "components": { "v": true, "s": true },
+    "duration": [{ "type": "timed", "duration": { "type": "round", "amount": 1 } }],
+    "entries": ["Older fixture text."], "classes": { "fromClassList": [{ "name": "Sorcerer", "source": "PHB" }, { "name": "Wizard", "source": "PHB" }] } }
+] }

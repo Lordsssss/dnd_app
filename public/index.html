@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>Table D&amp;D</title>
+  <meta name="description" content="Fiches de personnage, carte de table et carte du monde pour D&amp;D 5e, partagées en direct.">
+  <meta name="theme-color" content="#1a2026">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Table D&amp;D">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="stylesheet" href="/css/sheet.css">
+  <link rel="stylesheet" href="/css/app.css">
+  <script>
+    try {
+      var t = localStorage.getItem('theme');
+      if (t === '"light"' || t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      var l = localStorage.getItem('lang');
+      if (l) document.documentElement.lang = JSON.parse(l);
+    } catch (e) {}
+  </script>
+</head>
+<body>
+  <div id="app"><div class="boot">…</div></div>
+  <noscript>Cette application a besoin de JavaScript. This app needs JavaScript.</noscript>
+  <script type="module" src="/app/main.js"></script>
+</body>
+</html>
