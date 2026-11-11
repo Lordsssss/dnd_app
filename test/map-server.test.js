@@ -108,6 +108,24 @@ test('une carte se crée, s’ouvre, se synchronise entre le portable et la TV, 
     const t = await tv.next(m => m.t === 'update');
     assert.equal(t.add.p.length, 1, 'la TV reçoit le contour révélé');
 
+    // La TV ne reçoit jamais les PV exacts ni les notes, ni un token caché ; le MJ les reçoit.
+    dm.send({ t: 'op', id: 4, scene: created.id, op: { type: 'token.add', tokens: [
+      { id: 'g', kind: 'enemy', name: 'Gobelin', x: 6, y: 5, hp: { current: 3, max: 7 }, notes: 'Piège au nord', showHp: true },
+      { id: 'h', kind: 'enemy', name: 'Assassin', x: 7, y: 5, hidden: true },
+    ] } });
+    const toDm = await dm.next(m => m.t === 'update' && m.set?.tokens?.some(x => x.id === 'g'));
+    assert.equal(toDm.set.tokens.find(x => x.id === 'g').hp.current, 3);
+    const toTv = await tv.next(m => m.t === 'update' && m.set?.tokens?.some(x => x.id === 'g'));
+    assert.deepEqual(toTv.set.tokens.map(x => x.id), ['p', 'g']);
+    assert.equal(toTv.set.tokens.find(x => x.id === 'g').hpBar, 0.45);
+    assert.ok(!/"hp"|"current"|"max"|Piège|Assassin/.test(JSON.stringify(toTv)));
+    dm.send({ t: 'op', id: 5, scene: created.id, op: { type: 'token.hp', ids: ['g'], delta: -2 } });
+    const hit = await tv.next(m => m.t === 'update' && m.set?.tokens);
+    assert.equal(hit.set.tokens.find(x => x.id === 'g').hpBar, 0.15);
+    dm.send({ t: 'tvScene', scene: created.id });
+    const reopened = await tv.next(m => m.t === 'scene');
+    assert.ok(!/"hp"|"current"|Piège|Assassin/.test(JSON.stringify(reopened)), 'la scène complète passe par le même filtre');
+
     dm.send({ t: 'op', id: 3, scene: created.id, op: { type: 'bidon' } });
     const nack = await dm.next(m => m.t === 'ack' && m.id === 3);
     assert.equal(nack.ok, false);
@@ -121,13 +139,14 @@ test('une carte se crée, s’ouvre, se synchronise entre le portable et la TV, 
     assert.equal(row.state.tokens[0].name, 'Ren');
     assert.deepEqual(row.state.tokens[0].conditions, ['Prone']);
     assert.equal(row.state.tokens[0].hp.max, 14);
+    assert.equal(row.state.tokens.find(x => x.id === 'g').hp.current, 1, 'la base garde les PV exacts');
 
     // L’API remplace les murs : la carte ouverte suit, sans perdre les tokens.
     const put = await s.call(`/api/c/c1/map/scenes/${created.id}`, { method: 'PUT', body: { name: 'Les Fontaineries', image: up.body.ref, grid: { cols: 20, rows: 10 }, walls: [{ points: [[1, 1], [2, 2]] }, { kind: 'door', points: [[3, 3], [4, 4]] }] } });
     assert.equal(put.status, 200);
     const ext = await tv.next(m => m.t === 'update' && m.set?.walls?.length === 2);
     assert.equal(ext.set.walls[1].kind, 'door');
-    assert.equal(s.app.map.storeOf('c1').open(created.id).doc.tokens.length, 1);
+    assert.equal(s.app.map.storeOf('c1').open(created.id).doc.tokens.length, 3);
     assert.equal((await s.call(`/api/c/c1/map/scenes/${created.id}`, { method: 'PUT', body: { walls: 'cassé' } })).status, 400);
     dm.close();
     tv.close();
