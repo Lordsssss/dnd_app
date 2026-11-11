@@ -277,6 +277,13 @@ function SelectionBar() {
   const one = tokens.length === 1 ? tokens[0] : null;
   const all = k => tokens.every(t => t[k]);
   const update = patch => op({ type: 'token.update', ids, patch });
+  const tracked = tokens.filter(t => t.hp);
+  const hpChange = (input, sign) => {
+    const n = Math.round(Number(input?.value));
+    if (!(n > 0)) { input?.focus(); return; }
+    op({ type: 'token.hp', ids: tracked.map(t => t.id), delta: sign * n });
+    input.value = '';
+  };
   const rename = () => {
     const name = prompt(tx('Nom du token'), one.name);
     if (name?.trim()) update({ name: name.trim() });
@@ -290,6 +297,14 @@ function SelectionBar() {
     <button type="button" class=${`chip ${all('defeated') ? 'on' : ''}`} title="Reste sur la carte, grisé. Raccourci : D" onClick=${() => update({ defeated: !all('defeated') })}>${all('defeated') ? 'Vaincu' : 'Vaincre'}</button>
     <button type="button" class=${`chip ${all('vision') ? 'on' : ''}`} title="Ce token éclaire le brouillard" onClick=${() => update({ vision: !all('vision') })}>Donne la vue</button>
     <button type="button" class=${`chip ${all('showName') ? 'on' : ''}`} title="Nom visible sur la TV, sous le token, quand le groupe le voit" onClick=${() => update({ showName: !all('showName') })}>Nom sur la TV</button>
+    <button type="button" class=${`chip ${all('showHp') ? 'on' : ''}`} title="Barre de vie sur la TV, sans chiffres, quand le groupe le voit" onClick=${() => update({ showHp: !all('showHp') })}>PV sur la TV</button>
+    ${tracked.length ? html`<span class="chip-group hp-quick" title="Dégâts ou soins rapides : Entrée pour des dégâts">
+      ${one?.hp ? html`<span class="chip-val">PV ${one.hp.current} / ${one.hp.max}</span>` : null}
+      <input class="num tiny" type="number" min="0" inputMode="numeric" aria-label="PV à retirer ou à rendre" placeholder="PV"
+        onKeyDown=${e => { if (e.key === 'Enter') { e.preventDefault(); hpChange(e.currentTarget, -1); } }} />
+      <button type="button" class="chip danger" onClick=${e => hpChange(e.currentTarget.parentElement.querySelector('input'), -1)}>Dégâts</button>
+      <button type="button" class="chip" onClick=${e => hpChange(e.currentTarget.parentElement.querySelector('input'), 1)}>Soin</button>
+    </span>` : null}
     ${one?.vision ? html`<button type="button" class=${`chip ${app.doc.view?.tokenId === one.id ? 'on' : ''}`} title="La TV ne montre que ce que voit ce token" onClick=${() => op(app.doc.view?.tokenId === one.id ? { type: 'view.set', mode: 'party' } : { type: 'view.set', mode: 'token', tokenId: one.id })}>Sa vue sur la TV</button>` : null}
     <span class="sep"></span>
     ${one ? html`<button type="button" class="chip" onClick=${rename}>Renommer</button>

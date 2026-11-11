@@ -1,7 +1,7 @@
 // Dessin d'une scène, le même pour le portable et la TV. Seules les options changent.
 // Une caméra : x, y, le coin haut-gauche en cases, et z, les pixels par case.
 import { sceneBounds } from '/shared/map/scene.js';
-import { computeView, namesOnTv, sourcesOf } from '/shared/map/view.js';
+import { barsOnTv, computeView, namesOnTv, sourcesOf } from '/shared/map/view.js';
 import { tokenImage, tokenLoading } from './images.js';
 
 const EXPLORED_CLEAR = 0.42; // Une zone déjà vue laisse passer 42 % de la carte.
@@ -192,6 +192,21 @@ export function drawRuler(ctx, r, z) {
   ctx.restore();
 }
 
+// Barre de vie sous un token : k entre 0 et 1, sans chiffres. z en pixels CSS par case.
+export function hpBar(ctx, t, k, z, px = 6) {
+  const r = (t.size || 1) / 2;
+  const w = Math.max(0.8, r * 1.6);
+  const h = px / z;
+  const x = t.x - w / 2;
+  const y = t.y + r * 0.92;
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,.7)';
+  ctx.fillRect(x - 1 / z, y - 1 / z, w + 2 / z, h + 2 / z);
+  ctx.fillStyle = k > 0.5 ? '#45c06b' : k > 0.25 ? '#f2a33a' : '#ff5a4f';
+  ctx.fillRect(x, y, w * k, h);
+  ctx.restore();
+}
+
 export function label(ctx, text, x, y, z, px = 13) {
   ctx.save();
   ctx.font = `bold ${px / z}px Roboto, sans-serif`;
@@ -291,10 +306,12 @@ export function drawScene(ctx, doc, cam, o) {
   ctx.setTransform(...transform);
   for (const { t, seen } of onTop) drawToken(ctx, t, o.onImage, { alpha: o.tokenStyle ? o.tokenStyle(t, seen) : 1, z });
   if (isTv) {
+    for (const t of barsOnTv(doc, view.seen)) hpBar(ctx, t, t.hpBar, cam.z);
     // Le nom sous le token, en pixels CSS comme sur le portable, un peu plus grand pour la distance.
     for (const t of namesOnTv(doc, view.seen)) {
       const box = tokenBox(t, tokenImage(t.image));
-      label(ctx, t.name, t.x, t.y + Math.max((t.size || 1) / 2, box.h / 2.6) + 16 / cam.z, cam.z, 16);
+      const below = (t.hpBar != null ? 24 : 16) / cam.z;
+      label(ctx, t.name, t.x, t.y + Math.max((t.size || 1) / 2, box.h / 2.6) + below, cam.z, 16);
     }
   }
 

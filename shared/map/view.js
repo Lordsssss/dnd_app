@@ -44,6 +44,37 @@ export function isSeen(ix, sources, t) {
 
 // Les noms que la TV écrit : seulement les tokens que le MJ a ouverts et que le groupe voit.
 // Un token caché ou hors de vue ne donne jamais son nom.
+// Ce que la TV reçoit d'un token. Les PV exacts, les notes et la fiche liée restent chez le MJ ;
+// un token caché n'est pas envoyé du tout. Si le MJ a ouvert la barre de vie, la TV reçoit une
+// fraction arrondie au vingtième, jamais les PV eux-mêmes.
+export const HP_BAR_STEPS = 20;
+
+export function hpBarOf(t) {
+  if (!(t.hp?.max > 0)) return null;
+  const k = Math.max(0, Math.min(1, t.hp.current / t.hp.max));
+  // Un token encore debout garde un trait de barre, même à 1 PV sur 200.
+  return k > 0 ? Math.max(1, Math.round(k * HP_BAR_STEPS)) / HP_BAR_STEPS : 0;
+}
+
+export function tvTokens(tokens) {
+  return tokens.filter(t => !t.hidden).map(t => {
+    const { hp, notes, ref, ...rest } = t;
+    return { ...rest, hpBar: t.showHp ? hpBarOf(t) : null };
+  });
+}
+
+// Un message du serveur, tel que la TV doit le recevoir.
+export function forTv(msg) {
+  if (msg?.t === 'scene' && msg.doc) return { ...msg, doc: { ...msg.doc, tokens: tvTokens(msg.doc.tokens || []) } };
+  if (msg?.t === 'update' && msg.set?.tokens) return { ...msg, set: { ...msg.set, tokens: tvTokens(msg.set.tokens) } };
+  return msg;
+}
+
+// Les barres de vie que la TV dessine : celles que le serveur lui a envoyées, sur un token vu.
+export function barsOnTv(doc, seen) {
+  return doc.tokens.filter(t => t.hpBar != null && !t.hidden && seen.has(t.id));
+}
+
 export function namesOnTv(doc, seen) {
   return doc.tokens.filter(t => t.showName && !t.hidden && seen.has(t.id) && String(t.name || '').trim());
 }

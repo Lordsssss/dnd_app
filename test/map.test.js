@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { blockingSegments, cutWallsUnder, eraseSegments, normalizeScene, SceneError, sceneBounds, serializeScene, sortFolders, wallIssues, weldWalls } from '../shared/map/scene.js';
 import { buildIndex, lineOfSight, pointInPolygon, visibilityPolygon } from '../shared/map/vision.js';
 import { applyUpdate, MapDoc } from '../shared/map/ops.js';
-import { computeView, namesOnTv } from '../shared/map/view.js';
+import { barsOnTv, computeView, forTv, hpBarOf, namesOnTv, tvTokens } from '../shared/map/view.js';
 import * as tracker from '../shared/map/tracker.js';
 import { bestiaryLink, footprintOf, initiativeMod } from '../shared/map/monster.js';
 
@@ -223,6 +223,65 @@ test('la TV n\'écrit un nom que sous un token ouvert par le MJ et vu par le gro
   assert.ok(names().includes('e'));
   m.apply({ type: 'token.update', id: 'e', patch: { name: '   ' } });
   assert.ok(!names().includes('e'), 'un nom vide ne dessine pas d\'étiquette');
+});
+
+test('dégâts et soins rapides : les PV restent entre 0 et le maximum, et s\'annulent', () => {
+  const m = new MapDoc(normalizeScene({ grid: { cols: 10, rows: 10 } }));
+  m.apply({ type: 'token.add', tokens: [
+    { id: 'a', kind: 'enemy', name: 'A', x: 1, y: 1, hp: { current: 10, max: 12 } },
+    { id: 'b', kind: 'enemy', name: 'B', x: 2, y: 1, hp: { current: 3, max: 7 } },
+    { id: 'n', kind: 'npc', name: 'Sans PV', x: 3, y: 1 },
+  ] });
+  const hp = id => m.doc.tokens.find(t => t.id === id).hp;
+  m.apply({ type: 'token.hp', ids: ['a', 'b', 'n'], delta: -5 });
+  assert.deepEqual(hp('a'), { current: 5, max: 12 });
+  assert.deepEqual(hp('b'), { current: 0, max: 7 }, 'jamais sous 0');
+  assert.equal(hp('n'), null, 'un token sans PV suivis reste sans PV');
+  m.apply({ type: 'token.hp', id: 'a', delta: 40 });
+  assert.equal(hp('a').current, 12, 'jamais au-dessus du maximum');
+  m.undo();
+  assert.equal(hp('a').current, 5);
+  assert.throws(() => m.apply({ type: 'token.hp', id: 'a', delta: 'beaucoup' }), SceneError);
+  assert.equal(m.doc.tokens.find(t => t.id === 'a').showHp, false, 'la barre sur la TV est éteinte par défaut');
+});
+
+test('la TV ne reçoit ni token caché, ni PV exacts, ni notes, et une barre seulement si le MJ l\'ouvre', () => {
+  const s = normalizeScene({ grid: { cols: 20, rows: 10 }, walls: [{ id: 'm', points: [[10, 0], [10, 10]] }] });
+  const m = new MapDoc(s);
+  m.apply({ type: 'token.add', tokens: [
+    { id: 'a', kind: 'pc', name: 'A', x: 2, y: 5, hp: { current: 20, max: 20 }, showHp: true },
+    { id: 'e', kind: 'enemy', name: 'Gobelin', x: 4, y: 5, hp: { current: 3, max: 7 }, notes: 'Secret du MJ', ref: { t: 'beast', id: 'gob' }, showHp: true },
+    { id: 'off', kind: 'enemy', name: 'Sans barre', x: 5, y: 5, hp: { current: 5, max: 9 } },
+    { id: 'h', kind: 'enemy', name: 'Assassin', x: 6, y: 5, hp: { current: 30, max: 30 }, hidden: true, showHp: true, showName: true },
+    { id: 'far', kind: 'enemy', name: 'Loin', x: 16, y: 5, hp: { current: 8, max: 8 }, showHp: true },
+  ] });
+  const tv = tvTokens(m.doc.tokens);
+  assert.deepEqual(tv.map(t => t.id), ['a', 'e', 'off', 'far'], 'le token caché n\'est pas envoyé');
+  for (const t of tv) {
+    assert.ok(!('hp' in t) && !('notes' in t) && !('ref' in t), `${t.id} : rien que le MJ garde`);
+    assert.ok(!JSON.stringify(t).includes('Secret'));
+  }
+  const e = tv.find(t => t.id === 'e');
+  assert.equal(e.hpBar, 0.45, '3 / 7 arrondi au vingtième');
+  assert.equal(tv.find(t => t.id === 'off').hpBar, null, 'barre éteinte : rien du tout');
+
+  assert.equal(hpBarOf({ hp: { current: 1, max: 200 } }), 0.05, 'encore debout : un trait de barre');
+  assert.equal(hpBarOf({ hp: { current: 0, max: 200 } }), 0);
+  assert.equal(hpBarOf({ hp: null }), null);
+
+  const doc = { ...m.doc, tokens: tv };
+  const seen = computeView(doc).seen;
+  assert.deepEqual(barsOnTv(doc, seen).map(t => t.id), ['a', 'e'], 'pas de barre hors de vue');
+
+  // Les messages du serveur : la scène complète et les mises à jour des tokens passent par le même filtre.
+  const scene = forTv({ t: 'scene', scene: 'x', doc: m.doc });
+  assert.deepEqual(scene.doc.tokens, tv);
+  assert.equal(m.doc.tokens.length, 5, 'le document du MJ n\'est pas touché');
+  const u = forTv({ t: 'update', scene: 'x', ...m.apply({ type: 'token.hp', id: 'e', delta: -1 }) });
+  assert.equal(u.set.tokens.find(t => t.id === 'e').hpBar, 0.3);
+  assert.ok(!JSON.stringify(u).includes('"current"'));
+  const walls = { t: 'update', set: { walls: [] } };
+  assert.equal(forTv(walls), walls, 'sans tokens, le message passe tel quel');
 });
 
 test('une porte d\'un groupe ouvre toutes les portes de ce groupe', () => {

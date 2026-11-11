@@ -12,7 +12,7 @@ export function newState() {
   return { tokens: [], explored: {}, view: { mode: 'party' }, tvCamera: null, frozen: false, drawings: [], templates: [], fight: null };
 }
 
-const TOKEN_FIELDS = ['name', 'image', 'kind', 'size', 'scale', 'rotation', 'vision', 'hidden', 'showName', 'defeated', 'init', 'ref', 'notes', 'conditions', 'hp', 'color'];
+const TOKEN_FIELDS = ['name', 'image', 'kind', 'size', 'scale', 'rotation', 'vision', 'hidden', 'showName', 'showHp', 'defeated', 'init', 'ref', 'notes', 'conditions', 'hp', 'color'];
 const cleanConditions = v => (Array.isArray(v) ? [...new Set(v.map(c => String(c).trim().slice(0, 40)).filter(Boolean))].slice(0, 20) : []);
 // PV d'un token : suivis par le MJ, jamais montrés sur la TV.
 const cleanHp = v => (v && typeof v === 'object' && isNum(Number(v.max)) && Number(v.max) > 0
@@ -47,6 +47,8 @@ function cleanToken(raw, rid) {
     hidden: !!raw.hidden,
     // Nom affiché sous le token sur la TV : le MJ le choisit token par token, éteint par défaut.
     showName: !!raw.showName,
+    // Barre de vie sur la TV, sans chiffres : même choix, token par token.
+    showHp: !!raw.showHp,
     defeated: !!raw.defeated,
     init: isNum(raw.init) ? raw.init : null,
     ref: raw.ref && typeof raw.ref === 'object' ? raw.ref : null,
@@ -203,6 +205,7 @@ const OPS = {
       if ('scale' in patch) patch.scale = Number(patch.scale) > 0 ? Number(patch.scale) : 1;
       if ('rotation' in patch) patch.rotation = isNum(patch.rotation) ? ((patch.rotation % 360) + 360) % 360 : 0;
       if ('showName' in patch) patch.showName = !!patch.showName;
+      if ('showHp' in patch) patch.showHp = !!patch.showHp;
       if ('init' in patch && !isNum(patch.init)) patch.init = null;
       if ('notes' in patch) patch.notes = String(patch.notes || '').slice(0, 4000);
       if ('conditions' in patch) patch.conditions = cleanConditions(patch.conditions);
@@ -210,6 +213,19 @@ const OPS = {
       if ('color' in patch) patch.color = COLORS.has(patch.color) ? patch.color : '';
       if ('ref' in patch && !(patch.ref && typeof patch.ref === 'object')) patch.ref = null;
       doc.tokens = doc.tokens.map(t => (ids.has(t.id) ? { ...t, ...patch } : t));
+    },
+  },
+  // Dégâts ou soins rapides : delta négatif pour des dégâts, positif pour un soin. Les PV restent
+  // entre 0 et le maximum ; un token sans PV suivis n'est pas touché.
+  'token.hp': {
+    roots: ['tokens'], label: 'PV',
+    run(doc, op) {
+      const delta = Math.round(Number(op.delta));
+      if (!isNum(delta) || Math.abs(delta) > 99999) fail('Valeur de PV invalide');
+      const ids = new Set(op.ids || [op.id]);
+      doc.tokens = doc.tokens.map(t => (ids.has(t.id) && t.hp
+        ? { ...t, hp: { ...t.hp, current: Math.max(0, Math.min(t.hp.max, t.hp.current + delta)) } }
+        : t));
     },
   },
   'token.remove': {
