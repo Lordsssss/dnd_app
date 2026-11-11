@@ -7,7 +7,7 @@ Two branches, two instances on one server:
 | `dev` | staging | `dnd-table-staging` | `~/dnd-table-staging` | `~/dnd-table-staging-data` |
 | `prod` | production | `dnd-table` | `~/dnd-table` | `~/dnd-table-data` |
 
-**The flow.** Work on a feature branch and open a pull request into `dev`. GitHub Actions runs the tests on the pull request. Merging it deploys `dev` to staging. When staging looks right, open a pull request from `dev` into `prod`; merging it deploys to production.
+**The flow.** Work on a feature branch and open a pull request into `dev`. GitHub Actions runs the tests on the pull request; the check is called `test / test`, the name the branch rule requires. Merging it deploys `dev` to staging. When staging looks right, open a pull request from `dev` into `prod`; merging it deploys to production.
 
 Each deploy: the tests run again, then GitHub Actions connects to the server over SSH and runs `scripts/deploy.sh` for that instance. That script fast-forwards the checkout to the merged commit, installs dependencies if they changed, backs up the database and restarts the service. Database migrations run when the service starts, after their own automatic copy of the database. If the service doesn't answer after the restart, the deploy fails and the Actions run turns red.
 
@@ -66,7 +66,13 @@ Node.js 22.13 or newer, git, Caddy for HTTPS. Python 3 with Pillow, numpy and sc
 
 *Settings → Environments*: `staging` and `production` appear after the first deploy. Give each an `APP_URL` variable to get a link on the run. Add yourself as a required reviewer on `production` if you want to approve each production deploy.
 
-*Settings → Branches → Add rule* for `dev` and `prod`: require a pull request and the **Tests** check before merging, and block force pushes. The deploy script refuses a commit that isn't a fast-forward, so a force push would make the next deploy fail.
+*Settings → Branches → Add branch ruleset*, one ruleset for both branches:
+
+- **Enforcement status**: Active. **Target branches**: Add target → Include by pattern → `dev`, then `prod`.
+- **Restrict deletions**.
+- **Require a pull request before merging**, with **Required approvals** at `0` when you work alone (GitHub doesn't let you approve your own pull request).
+- **Require status checks to pass** → Add checks → `test / test` (GitHub Actions).
+- **Block force pushes**. The deploy script refuses a commit that isn't a fast-forward, so a force push would make the next deploy fail.
 
 ## By hand
 

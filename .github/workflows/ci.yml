@@ -1,0 +1,15 @@
+name: Tests
+
+# Sur chaque pull request et chaque branche de travail. Le check « test / test » est celui
+# que la règle de GitHub exige avant de fusionner dans dev ou prod.
+on:
+  pull_request:
+  push:
+    branches-ignore: [dev, prod]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml

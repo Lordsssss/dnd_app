@@ -1,10 +1,9 @@
-name: Tests
+name: Test suite
 
-# Sur chaque pull request, et avant chaque déploiement (appelé par deploy.yml).
+# Appelé par ci.yml (pull requests et branches de travail) et par deploy.yml (avant chaque
+# déploiement). Appelé des deux côtés par un job nommé « test », le check s'appelle partout
+# « test / test » : c'est le nom exigé par la règle des branches dev et prod sur GitHub.
 on:
-  pull_request:
-  push:
-    branches-ignore: [dev, prod]
   workflow_call:
 
 permissions:
