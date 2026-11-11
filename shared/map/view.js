@@ -42,6 +42,12 @@ export function isSeen(ix, sources, t) {
   return sources.some(s => samplePoints(t).some(p => lineOfSight(ix, s.x, s.y, p[0], p[1])));
 }
 
+// Les noms que la TV écrit : seulement les tokens que le MJ a ouverts et que le groupe voit.
+// Un token caché ou hors de vue ne donne jamais son nom.
+export function namesOnTv(doc, seen) {
+  return doc.tokens.filter(t => t.showName && !t.hidden && seen.has(t.id) && String(t.name || '').trim());
+}
+
 export function computeView(doc) {
   // Un lieu sans brouillard : tout se voit, sauf ce que le MJ a caché.
   if (doc.fog === false) {

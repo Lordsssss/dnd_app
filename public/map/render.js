@@ -1,7 +1,7 @@
 // Dessin d'une scène, le même pour le portable et la TV. Seules les options changent.
 // Une caméra : x, y, le coin haut-gauche en cases, et z, les pixels par case.
 import { sceneBounds } from '/shared/map/scene.js';
-import { computeView, sourcesOf } from '/shared/map/view.js';
+import { computeView, namesOnTv, sourcesOf } from '/shared/map/view.js';
 import { tokenImage, tokenLoading } from './images.js';
 
 const EXPLORED_CLEAR = 0.42; // Une zone déjà vue laisse passer 42 % de la carte.
@@ -290,6 +290,13 @@ export function drawScene(ctx, doc, cam, o) {
   if (o.fog && doc.fog !== false) drawFog(ctx, view, transform, o.fog);
   ctx.setTransform(...transform);
   for (const { t, seen } of onTop) drawToken(ctx, t, o.onImage, { alpha: o.tokenStyle ? o.tokenStyle(t, seen) : 1, z });
+  if (isTv) {
+    // Le nom sous le token, en pixels CSS comme sur le portable, un peu plus grand pour la distance.
+    for (const t of namesOnTv(doc, view.seen)) {
+      const box = tokenBox(t, tokenImage(t.image));
+      label(ctx, t.name, t.x, t.y + Math.max((t.size || 1) / 2, box.h / 2.6) + 16 / cam.z, cam.z, 16);
+    }
+  }
 
   drawRuler(ctx, o.live?.ruler, z);
   o.afterFog?.(ctx, cam.z, view);

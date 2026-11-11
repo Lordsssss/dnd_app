@@ -773,6 +773,8 @@ export default {
   "Taille de l'image": 'Image size',
   'Raccourci : Suppr': 'Shortcut: Delete',
   'Donne la vue': 'Gives sight',
+  'Nom sur la TV': 'Name on the TV',
+  'Nom visible sur la TV, sous le token, quand le groupe le voit': 'Name shown on the TV, under the token, when the party sees it',
   'extrémité': 'loose end',
   'Levier, groupe de portes': 'Lever, door group',
   'Clic pour chaque point. Double-clic ou Entrée pour finir, Retour arrière pour enlever un point.': 'Click for each point. Double-click or Enter to finish, Backspace to remove a point.',

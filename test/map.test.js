@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { blockingSegments, cutWallsUnder, eraseSegments, normalizeScene, SceneError, sceneBounds, serializeScene, sortFolders, wallIssues, weldWalls } from '../shared/map/scene.js';
 import { buildIndex, lineOfSight, pointInPolygon, visibilityPolygon } from '../shared/map/vision.js';
 import { applyUpdate, MapDoc } from '../shared/map/ops.js';
-import { computeView } from '../shared/map/view.js';
+import { computeView, namesOnTv } from '../shared/map/view.js';
 import * as tracker from '../shared/map/tracker.js';
 import { bestiaryLink, footprintOf, initiativeMod } from '../shared/map/monster.js';
 
@@ -192,6 +192,37 @@ test('un ennemi caché ne se voit jamais, un token peut donner la vue, et la vue
 
   m.apply({ type: 'token.update', id: 'e', patch: { hidden: false } });
   assert.ok(computeView(m.doc).seen.has('e'), 'révélé en un clic');
+});
+
+test('la TV n\'écrit un nom que sous un token ouvert par le MJ et vu par le groupe', () => {
+  const s = normalizeScene({ grid: { cols: 20, rows: 10 }, walls: [{ id: 'm', points: [[10, 0], [10, 10]] }] });
+  // Un token d'une scène enregistrée avant l'option n'a pas le champ : il reste sans nom.
+  const m = new MapDoc(s, { tokens: [{ id: 'old', kind: 'enemy', name: 'Ancien', x: 5, y: 2, size: 1 }] });
+  m.apply({ type: 'token.add', tokens: [
+    { id: 'a', kind: 'pc', name: 'A', x: 2, y: 5 },
+    { id: 'e', kind: 'enemy', name: 'Gobelin', x: 4, y: 5, notes: 'Secret du MJ', hp: { current: 3, max: 7 } },
+    { id: 'h', kind: 'enemy', name: 'Assassin', x: 6, y: 5, hidden: true },
+    { id: 'far', kind: 'enemy', name: 'Derrière le mur', x: 16, y: 5 },
+  ] });
+  const names = () => namesOnTv(m.doc, computeView(m.doc).seen).map(t => t.id);
+  assert.equal(m.doc.tokens.find(t => t.id === 'e').showName, false, 'éteint par défaut');
+  assert.deepEqual(names(), [], 'aucun nom tant que le MJ n\'en ouvre pas');
+
+  m.apply({ type: 'token.update', ids: ['old', 'e', 'h', 'far'], patch: { showName: 'oui' } });
+  assert.equal(m.doc.tokens.find(t => t.id === 'e').showName, true, 'le champ reste un booléen');
+  assert.deepEqual(names().sort(), ['e', 'old'], 'ni le token caché ni celui hors de vue');
+
+  m.apply({ type: 'token.update', id: 'h', patch: { hidden: false } });
+  assert.ok(names().includes('h'), 'révélé, son nom suit');
+  m.undo();
+  assert.ok(!names().includes('h'), 'annuler le recache');
+
+  m.apply({ type: 'token.update', id: 'e', patch: { showName: false } });
+  assert.ok(!names().includes('e'));
+  m.apply({ type: 'token.update', id: 'e', patch: { showName: true } });
+  assert.ok(names().includes('e'));
+  m.apply({ type: 'token.update', id: 'e', patch: { name: '   ' } });
+  assert.ok(!names().includes('e'), 'un nom vide ne dessine pas d\'étiquette');
 });
 
 test('une porte d\'un groupe ouvre toutes les portes de ce groupe', () => {

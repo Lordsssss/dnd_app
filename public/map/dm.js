@@ -289,6 +289,7 @@ function SelectionBar() {
     <button type="button" class=${`chip ${all('hidden') ? 'on warn' : ''}`} title="Invisible sur la TV même en ligne de vue. Raccourci : H" onClick=${() => update({ hidden: !all('hidden') })}>${all('hidden') ? 'Caché' : 'Cacher'}</button>
     <button type="button" class=${`chip ${all('defeated') ? 'on' : ''}`} title="Reste sur la carte, grisé. Raccourci : D" onClick=${() => update({ defeated: !all('defeated') })}>${all('defeated') ? 'Vaincu' : 'Vaincre'}</button>
     <button type="button" class=${`chip ${all('vision') ? 'on' : ''}`} title="Ce token éclaire le brouillard" onClick=${() => update({ vision: !all('vision') })}>Donne la vue</button>
+    <button type="button" class=${`chip ${all('showName') ? 'on' : ''}`} title="Nom visible sur la TV, sous le token, quand le groupe le voit" onClick=${() => update({ showName: !all('showName') })}>Nom sur la TV</button>
     ${one?.vision ? html`<button type="button" class=${`chip ${app.doc.view?.tokenId === one.id ? 'on' : ''}`} title="La TV ne montre que ce que voit ce token" onClick=${() => op(app.doc.view?.tokenId === one.id ? { type: 'view.set', mode: 'party' } : { type: 'view.set', mode: 'token', tokenId: one.id })}>Sa vue sur la TV</button>` : null}
     <span class="sep"></span>
     ${one ? html`<button type="button" class="chip" onClick=${rename}>Renommer</button>

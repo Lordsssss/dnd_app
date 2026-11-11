@@ -1,5 +1,5 @@
 // La fenêtre posée sur la TV : la carte sous son brouillard, et rien d'autre.
-// Pas de nom, pas d'ordre d'initiative, pas d'interface.
+// Pas d'ordre d'initiative, pas d'interface, et un nom seulement sous les tokens que le MJ a ouverts.
 import { applyUpdate } from '/shared/map/ops.js';
 import { connectMap, getToken } from './net.js';
 import { loadMap } from './images.js';

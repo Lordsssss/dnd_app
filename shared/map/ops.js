@@ -12,7 +12,7 @@ export function newState() {
   return { tokens: [], explored: {}, view: { mode: 'party' }, tvCamera: null, frozen: false, drawings: [], templates: [], fight: null };
 }
 
-const TOKEN_FIELDS = ['name', 'image', 'kind', 'size', 'scale', 'rotation', 'vision', 'hidden', 'defeated', 'init', 'ref', 'notes', 'conditions', 'hp', 'color'];
+const TOKEN_FIELDS = ['name', 'image', 'kind', 'size', 'scale', 'rotation', 'vision', 'hidden', 'showName', 'defeated', 'init', 'ref', 'notes', 'conditions', 'hp', 'color'];
 const cleanConditions = v => (Array.isArray(v) ? [...new Set(v.map(c => String(c).trim().slice(0, 40)).filter(Boolean))].slice(0, 20) : []);
 // PV d'un token : suivis par le MJ, jamais montrés sur la TV.
 const cleanHp = v => (v && typeof v === 'object' && isNum(Number(v.max)) && Number(v.max) > 0
@@ -45,6 +45,8 @@ function cleanToken(raw, rid) {
     rotation: isNum(raw.rotation) ? ((raw.rotation % 360) + 360) % 360 : 0,
     vision: raw.vision === undefined ? kind === 'pc' : !!raw.vision,
     hidden: !!raw.hidden,
+    // Nom affiché sous le token sur la TV : le MJ le choisit token par token, éteint par défaut.
+    showName: !!raw.showName,
     defeated: !!raw.defeated,
     init: isNum(raw.init) ? raw.init : null,
     ref: raw.ref && typeof raw.ref === 'object' ? raw.ref : null,
@@ -200,6 +202,7 @@ const OPS = {
       if ('size' in patch) patch.size = Math.max(1, Math.min(8, Math.round(Number(patch.size) || 1)));
       if ('scale' in patch) patch.scale = Number(patch.scale) > 0 ? Number(patch.scale) : 1;
       if ('rotation' in patch) patch.rotation = isNum(patch.rotation) ? ((patch.rotation % 360) + 360) % 360 : 0;
+      if ('showName' in patch) patch.showName = !!patch.showName;
       if ('init' in patch && !isNum(patch.init)) patch.init = null;
       if ('notes' in patch) patch.notes = String(patch.notes || '').slice(0, 4000);
       if ('conditions' in patch) patch.conditions = cleanConditions(patch.conditions);
