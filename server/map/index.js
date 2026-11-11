@@ -7,6 +7,7 @@ import { execFile } from 'node:child_process';
 import { WebSocketServer } from 'ws';
 import { SceneError } from '../../shared/map/scene.js';
 import { opLabel } from '../../shared/map/ops.js';
+import { forTv } from '../../shared/map/view.js';
 import { SceneStore } from './store.js';
 import { TokenCatalog, assetItems } from './tokens.js';
 import { HttpError } from '../http.js';
@@ -189,8 +190,9 @@ export function createMapServer({ db, engine, campaigns, assets, library, cfg, a
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: 5_000_000 });
 
+  // La TV ne reçoit ni tokens cachés, ni PV exacts, ni notes : tout message passe par ici.
   function send(c, msg) {
-    if (c.ws.readyState === 1) c.ws.send(JSON.stringify(msg));
+    if (c.ws.readyState === 1) c.ws.send(JSON.stringify(c.role === 'tv' ? forTv(msg) : msg));
   }
   function broadcast(cid, sceneId, msg, except = null) {
     for (const c of clients) if (c !== except && c.authed && c.campaign === cid && c.scene === sceneId) send(c, msg);
