@@ -245,6 +245,25 @@ test('dégâts et soins rapides : les PV restent entre 0 et le maximum, et s\'an
   assert.equal(m.doc.tokens.find(t => t.id === 'a').showHp, false, 'la barre sur la TV est éteinte par défaut');
 });
 
+test('PV tapés dans l\'ordre d\'initiative : ils remplacent les PV actuels et s\'annulent', () => {
+  const m = new MapDoc(normalizeScene({ grid: { cols: 10, rows: 10 } }));
+  m.apply({ type: 'token.add', tokens: [
+    { id: 'a', kind: 'enemy', name: 'A', x: 1, y: 1, hp: { current: 10, max: 12 } },
+    { id: 'n', kind: 'enemy', name: 'Sans PV', x: 2, y: 1 },
+  ] });
+  const hp = id => m.doc.tokens.find(t => t.id === id).hp;
+  m.apply({ type: 'token.hpSet', id: 'a', value: 4 });
+  assert.deepEqual(hp('a'), { current: 4, max: 12 });
+  m.apply({ type: 'token.hpSet', id: 'a', value: 20 });
+  assert.deepEqual(hp('a'), { current: 20, max: 20 }, 'au-dessus du maximum : le maximum suit');
+  m.apply({ type: 'token.hpSet', id: 'n', value: 33 });
+  assert.deepEqual(hp('n'), { current: 33, max: 33 }, 'un token sans PV en reçoit');
+  m.undo();
+  assert.equal(hp('n'), null);
+  assert.throws(() => m.apply({ type: 'token.hpSet', id: 'a', value: -3 }), SceneError);
+  assert.throws(() => m.apply({ type: 'token.hpSet', id: 'a', value: 'x' }), SceneError);
+});
+
 test('la TV ne reçoit ni token caché, ni PV exacts, ni notes, et une barre seulement si le MJ l\'ouvre', () => {
   const s = normalizeScene({ grid: { cols: 20, rows: 10 }, walls: [{ id: 'm', points: [[10, 0], [10, 10]] }] });
   const m = new MapDoc(s);

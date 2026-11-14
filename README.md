@@ -23,7 +23,7 @@ A self-hosted table for D&D 5e campaigns: live character sheets, a DM map with f
 - **Settings**: name, edition, currency (coins, names and rates), Long Rest rule, **secret death saves** (the server rolls; only the DM sees the tally).
 - **API tokens**: give a tool or an AI assistant the DM's rights on this campaign and nothing else.
 - **Log** of everything that happened in the campaign.
-- **Map** at `/c/<campaign>/carte`: upload a map, measure the grid by dragging over one square, Auto-walls from the image, then walls and doors by hand. Fog that follows the tokens, a TV window, initiative, rulers, templates, drawing. Token details: HP, conditions, notes, stat block.
+- **Map** at `/c/<campaign>/carte`: upload a map, measure the grid by dragging over one square, Auto-walls from the image, then walls and doors by hand. Fog that follows the tokens, a TV window, initiative with one line per creature and its HP and damage boxes, rulers, templates, drawing. Token details: HP, conditions, notes, stat block. Every HP change is kept in a damage log, read with `GET /api/c/<campaign>/map/damage-log` (DM only).
 - **World map** at `/c/<campaign>/monde`: an Azgaar `.map` file or any image. Corrected names, DM notes, a text for the players, places, the party's pin.
 
 **The admin** (one or more accounts with the admin flag)

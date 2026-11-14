@@ -10,6 +10,7 @@ import { opLabel } from '../../shared/map/ops.js';
 import { forTv } from '../../shared/map/view.js';
 import { SceneStore } from './store.js';
 import { TokenCatalog, assetItems } from './tokens.js';
+import { createDamageLog, hpSnapshot, logsHp } from './damage.js';
 import { HttpError } from '../http.js';
 import { APP_DIR } from '../config.js';
 
@@ -17,6 +18,7 @@ export function createMapServer({ db, engine, campaigns, assets, library, cfg, a
   const tokens = new TokenCatalog(library.dir);
   const stores = new Map();
   const clients = new Set();
+  const damage = createDamageLog(db.db);
 
   function storeOf(cid) {
     let s = stores.get(cid);
@@ -153,6 +155,9 @@ export function createMapServer({ db, engine, campaigns, assets, library, cfg, a
     return autoWalls(ctx.params.cid, ctx.params.id, b);
   });
 
+  // Journal des PV de la campagne : chaque coup, pour les statistiques. Lecture seule.
+  router.get('/api/c/:cid/map/damage-log', ctx => { dm(ctx); return damage.list(ctx.params.cid); });
+
   router.get('/api/c/:cid/map/images', ctx => {
     dm(ctx);
     return db.assetsOf(ctx.params.cid, 'map').map(x => ({ id: x.id, path: `asset:${x.id}`, name: x.name, folder: x.folder || '', bytes: x.size, width: x.width, height: x.height, mtime: x.createdAt }));
@@ -240,15 +245,22 @@ export function createMapServer({ db, engine, campaigns, assets, library, cfg, a
           case 'open': openFor(c, msg.scene); return reply(true);
           case 'op': {
             const doc = storeOf(cid).open(msg.scene);
+            const before = logsHp(msg.op?.type) ? hpSnapshot(doc.doc) : null;
             publish(cid, msg.scene, doc.apply(msg.op));
             logOp(c, cid, msg.scene, msg.op);
+            if (before) {
+              const sceneName = storeOf(cid).list().find(s => s.id === msg.scene)?.name;
+              damage.record({ campaign: cid, scene: msg.scene, sceneName, account: c.accountName, doc: doc.doc, before, op: msg.op });
+            }
             return reply(true);
           }
           case 'undo':
           case 'redo': {
             const doc = storeOf(cid).open(msg.scene);
+            const before = hpSnapshot(doc.doc);
             const update = msg.t === 'undo' ? doc.undo() : doc.redo();
             if (update) publish(cid, msg.scene, update);
+            if (update) damage.undo({ campaign: cid, scene: msg.scene, doc: doc.doc, before, redo: msg.t === 'redo' });
             return reply(true);
           }
           case 'tvScene': storeOf(cid).open(msg.scene); setTvScene(cid, msg.scene); return reply(true);

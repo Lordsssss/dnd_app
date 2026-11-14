@@ -226,6 +226,21 @@ export const MIGRATIONS = [
       addCol(db, 'assets', "folder TEXT NOT NULL DEFAULT ''");
     },
   },
+  {
+    id: 5,
+    name: 'Journal des PV de la carte : chaque coup et chaque correction, gardés pour les statistiques',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS damage_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, campaign_id TEXT NOT NULL, scene TEXT, scene_name TEXT,
+          fight TEXT, round INTEGER, turn TEXT, token TEXT, target TEXT, target_kind TEXT, kind TEXT NOT NULL,
+          amount INTEGER, hp_before INTEGER, hp_after INTEGER, hp_max INTEGER, undone INTEGER NOT NULL DEFAULT 0,
+          account TEXT, at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS damage_log_campaign ON damage_log (campaign_id, id);
+      `);
+    },
+  },
 ];
 
 export function pendingMigrations(db) {

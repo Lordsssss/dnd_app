@@ -228,6 +228,20 @@ const OPS = {
         : t));
     },
   },
+  // PV tapés dans l'ordre d'initiative : la valeur remplace les PV actuels. Un token sans PV suivis
+  // en reçoit (actuels = max) ; une valeur au-dessus du maximum relève le maximum.
+  'token.hpSet': {
+    roots: ['tokens'], label: 'PV',
+    run(doc, op) {
+      const v = Math.round(Number(op.value));
+      if (!isNum(v) || v < 0 || v > 99999) fail('Valeur de PV invalide');
+      doc.tokens = doc.tokens.map(t => {
+        if (t.id !== op.id) return t;
+        if (!t.hp) return v > 0 ? { ...t, hp: { current: v, max: v } } : t;
+        return { ...t, hp: { current: v, max: Math.max(t.hp.max, v) } };
+      });
+    },
+  },
   'token.remove': {
     roots: ['tokens', 'fight', 'view'], label: 'Suppression de token',
     run(doc, op) {
@@ -304,17 +318,17 @@ const OPS = {
   // ---------------------------------------------------- Initiative
   'fight.new': {
     roots: ['fight'], label: 'Nouveau combat',
-    run(doc) { doc.fight = tracker.addPcRows(tracker.newFight(), doc.tokens); },
+    run(doc, op, x) { doc.fight = { ...tracker.addPcRows(tracker.newFight(), doc.tokens), id: x.rid('f') }; },
   },
   'fight.end': {
     roots: ['fight'], label: 'Fin du combat',
     run(doc) { doc.fight = null; },
   },
-  // Un combat lancé depuis la sélection : PJ sans nombre, créatures identiques groupées, round 1.
+  // Un combat lancé depuis la sélection : PJ sans nombre, une ligne par créature, round 1.
   'fight.create': {
     roots: ['fight'], label: 'Combat lancé',
     run(doc, op, x) {
-      const f = tracker.addTokens(tracker.newFight(), pick(doc, op.tokenIds), x.rng);
+      const f = { ...tracker.addTokens(tracker.newFight(), pick(doc, op.tokenIds), x.rng), id: x.rid('f') };
       doc.fight = op.start === false ? f : tracker.start(f, doc.tokens);
     },
   },
