@@ -1,5 +1,6 @@
-// L'ordre d'initiative, sur le portable seulement. Pas de PV : seulement les tours.
-// Un combat se lance depuis la sélection : cadre sur la carte, puis « Lancer le combat ».
+// L'ordre d'initiative, sur le portable seulement. Chaque créature a ses PV et une case de dégâts ;
+// les PJ n'ont que leur initiative. Un combat se lance depuis la sélection : cadre sur la carte,
+// puis « Lancer le combat ».
 import { html, useEffect, useState } from '/app/html.js';
 import { isOut, groupName } from '/shared/map/tracker.js';
 import { app, notify, op, requestDraw, selectedTokens } from './state.js';
@@ -18,7 +19,39 @@ function TotalField({ row }) {
     onKeyDown=${e => { if (e.key === 'Enter') { commit(); e.target.blur(); } e.stopPropagation(); }} />`;
 }
 
-function Row({ row, fight, tokens, sel }) {
+// PV d'une créature : la case se réécrit à la main ; la case de dégâts se retire des PV.
+function HpLine({ token, label }) {
+  const hp = token.hp;
+  const [v, setV] = useState(hp?.current ?? '');
+  const [dmg, setDmg] = useState('');
+  useEffect(() => { setV(hp?.current ?? ''); }, [hp?.current]);
+  const commit = () => {
+    if (v === '' || Number(v) === (hp?.current ?? null)) { setV(hp?.current ?? ''); return; }
+    const n = Math.round(Number(v));
+    if (!(n >= 0)) { setV(hp?.current ?? ''); return; }
+    op({ type: 'token.hpSet', id: token.id, value: n });
+  };
+  const hit = () => {
+    const n = Math.round(Number(dmg));
+    if (!(n > 0) || !hp) return;
+    op({ type: 'token.hp', ids: [token.id], delta: -n });
+    setDmg('');
+  };
+  const keys = (e, fn) => { if (e.key === 'Enter') { e.preventDefault(); fn(); } e.stopPropagation(); };
+  return html`<div class=${`trk-hp ${hp && hp.current === 0 ? 'zero' : ''}`}>
+    ${label ? html`<span class="trk-hp-who">${token.name}</span>` : null}
+    <label class="trk-hp-cur" title="PV actuels : réécris le nombre au besoin">PV
+      <input class="trk-num" inputMode="numeric" aria-label=${`PV de ${token.name}`} placeholder="—"
+        value=${v} onInput=${e => setV(e.target.value)} onBlur=${commit} onKeyDown=${e => keys(e, () => { commit(); e.target.blur(); })} />
+      ${hp ? html`<small>/ ${hp.max}</small>` : null}
+    </label>
+    <input class="trk-num dmg" inputMode="numeric" aria-label=${`Dégâts à ${token.name}`} placeholder="dég."
+      value=${dmg} onInput=${e => setDmg(e.target.value)} onKeyDown=${e => keys(e, hit)} />
+    <button type="button" class="btn tiny danger" disabled=${!hp} title=${hp ? 'Retire les dégâts des PV · Entrée' : 'Entre d\'abord ses PV'} onClick=${hit}>Dégâts</button>
+  </div>`;
+}
+
+function Row({ row, fight, tokens }) {
   const out = isOut(row, tokens);
   const active = fight.started && fight.current === row.id;
   const live = row.tokenIds.filter(id => { const t = tokens.find(x => x.id === id); return t && !t.defeated; }).length;
@@ -27,7 +60,7 @@ function Row({ row, fight, tokens, sel }) {
     const name = prompt('Nom de la ligne', row.name);
     if (name?.trim()) op({ type: 'fight.row', rowId: row.id, patch: { name: name.trim() } });
   };
-  const outside = sel.filter(t => !row.tokenIds.includes(t.id));
+  const rowTokens = row.tokenIds.map(id => tokens.find(t => t.id === id)).filter(Boolean);
   return html`<li class=${`trk-row ${active ? 'on' : ''} ${out ? 'out' : ''} ${row.kind === 'pc' && row.total == null ? 'todo' : ''}`}
     onMouseEnter=${() => { app.rowHover = row.id; requestDraw(); }}
     onMouseLeave=${() => { app.rowHover = null; requestDraw(); }}>
@@ -36,8 +69,8 @@ function Row({ row, fight, tokens, sel }) {
       <b>${row.name}</b>
       <small>${row.kind === 'pc' ? (row.total == null ? 'initiative à saisir' : 'PJ') : out ? 'vaincu, tour sauté' : `${row.roll ?? '—'} ${row.mod >= 0 ? '+' : '−'} ${Math.abs(row.mod)} · ${live}/${row.tokenIds.length} en jeu`}</small>
     </button>
+    ${row.kind === 'pc' ? null : rowTokens.map(t => html`<${HpLine} key=${t.id} token=${t} label=${rowTokens.length > 1} />`)}
     <span class="trk-tools">
-      ${outside.length && row.kind !== 'pc' ? html`<button type="button" class="icon" title=${`Mettre la sélection dans ce groupe (${outside.length})`} onClick=${() => op({ type: 'fight.addToRow', rowId: row.id, tokenIds: outside.map(t => t.id) })}>+</button>` : null}
       ${row.kind !== 'pc' && row.tokenIds.length > 1 ? html`<button type="button" class="icon" title="Séparer : une ligne et un jet par token" onClick=${() => op({ type: 'fight.split', rowId: row.id })}>⇉</button>` : null}
       <button type="button" class="icon" title="Monter" onClick=${() => op({ type: 'fight.moveRow', rowId: row.id, dir: -1 })}>↑</button>
       <button type="button" class="icon" title="Descendre" onClick=${() => op({ type: 'fight.moveRow', rowId: row.id, dir: 1 })}>↓</button>
@@ -93,7 +126,7 @@ export function Tracker() {
     ${!f ? html`<div class="trk-empty">
       <ol class="trk-steps">
         <li><b>Sélectionne</b> ce qui se bat : outil Tokens (V), glisse un cadre sur la carte. Maj+clic ajoute ou retire un token.</li>
-        <li><b>Lance le combat.</b> Les créatures identiques partagent un jet. Tu saisis l'initiative annoncée par chaque PJ.</li>
+        <li><b>Lance le combat.</b> Chaque créature a son jet, ses PV et sa case de dégâts. Tu saisis l'initiative annoncée par chaque PJ.</li>
       </ol>
       <button type="button" class="btn small ghost" onClick=${selectFighters} title="Sélectionne les PJ et les ennemis visibles de la carte, sans PNJ ni vaincus">Tous les PJ et ennemis</button>
       ${sel.length ? html`<${SelectionSummary} sel=${sel} />` : null}
@@ -109,7 +142,7 @@ export function Tracker() {
       </div>
       ${todo ? html`<p class="trk-hint small">${todo} PJ sans initiative : tape le nombre annoncé dans sa case, l'ordre se replace.</p>` : null}
       <ol class="trk-rows">
-        ${f.rows.map(r => html`<${Row} key=${r.id} row=${r} fight=${f} tokens=${doc.tokens} sel=${sel} />`)}
+        ${f.rows.map(r => html`<${Row} key=${r.id} row=${r} fight=${f} tokens=${doc.tokens} />`)}
         ${f.rows.length ? null : html`<li class="muted small trk-none">Sélectionne des tokens sur la carte pour les ajouter.</li>`}
       </ol>
       ${newcomers.length ? html`<div class="trk-add">

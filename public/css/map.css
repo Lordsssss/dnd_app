@@ -147,8 +147,17 @@ body.map-page { height: 100vh; overflow: hidden; background: var(--bg); }
 .trk-name { display: grid; text-align: left; background: none; border: 0; color: var(--ink); padding: 0; cursor: pointer; min-width: 0; }
 .trk-name b { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .trk-name small { font-size: 11px; color: var(--ink-2); }
-.trk-tools { grid-column: 2; display: flex; gap: 2px; justify-content: flex-end; height: 0; overflow: hidden; }
-.trk-row:hover .trk-tools, .trk-row:focus-within .trk-tools { height: auto; margin-top: 2px; }
+.trk-hp { grid-column: 2; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.trk-hp-who { font-size: 11px; color: var(--ink-2); flex-basis: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trk-hp-cur { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--ink-2); font-weight: 700; }
+.trk-hp-cur small { font-size: 11px; font-weight: 400; }
+.trk-num { width: 42px; height: 26px; text-align: center; font-size: 13px; font-weight: 700; background: var(--bg-2); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 0; }
+.trk-num.dmg { margin-left: auto; font-weight: 400; }
+.trk-hp .btn.tiny { min-height: 26px; height: 26px; }
+.trk-hp.zero .trk-hp-cur input { border-color: var(--danger); color: var(--danger); }
+/* Outils de la ligne : par-dessus le haut de la ligne, au survol, sans rien décaler en dessous. */
+.trk-tools { position: absolute; top: 3px; right: 4px; display: none; gap: 2px; padding-left: 6px; background: inherit; border-radius: 4px; }
+.trk-row:hover .trk-tools { display: flex; }
 .icon { width: 24px; height: 22px; line-height: 1; font-size: 14px; background: var(--paper-3); border: 1px solid var(--line); border-radius: 3px; color: var(--ink); cursor: pointer; padding: 0; }
 .icon:hover { border-color: var(--ink-3); }
 .trk-add { padding: 8px 10px; border-top: 1px solid var(--line); display: grid; gap: 6px; }

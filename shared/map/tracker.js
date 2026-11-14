@@ -1,7 +1,8 @@
-// Ordre d'initiative. Rien sur les PV ou les dégâts : seulement les tours.
-// Une ligne est soit un PJ, soit un groupe de créatures : un seul jet, un seul tour.
-// Un combat se lance depuis une sélection : les créatures identiques forment un groupe.
-// Un groupe dont tous les tokens sont vaincus reste affiché et son tour est sauté.
+// Ordre d'initiative. Les PV et les dégâts sont sur les tokens (opérations token.hp*), pas ici.
+// Une ligne est un PJ ou une créature : un jet, un tour. Un combat se lance depuis une sélection,
+// chaque créature y prend sa propre ligne. Les groupes (plusieurs tokens, un jet) ne viennent
+// plus que de fight.addGroup ou de combats plus anciens ; une ligne dont tous les tokens sont
+// vaincus reste affichée et son tour est sauté.
 
 export function newFight() {
   return { started: false, round: 0, current: null, rows: [] };
@@ -84,22 +85,8 @@ export function addEach(fight, tokens, rng = Math.random) {
   return tokens.reduce((f, t) => addGroup(f, { name: t.name, tokens: [t] }, rng), fight);
 }
 
-// Ce qui fait deux créatures « identiques » : la même fiche, sinon le même nom sans numéro.
-const baseName = name => String(name || '').replace(/\s*#?\d+$/, '').trim();
-
-export function groupKey(t) {
-  if (t.ref?.t === 'monster') return `m|${t.ref.name}|${t.ref.source || ''}`;
-  if (t.ref?.t === 'note') return `n|${t.ref.file}|${t.ref.title}`;
-  return `name|${baseName(t.name).toLowerCase()}`;
-}
-
-function rowName(tokens) {
-  if (tokens.length === 1) return tokens[0].name;
-  const base = baseName(tokens[0].name);
-  return base && tokens.every(t => baseName(t.name) === base) ? `${base} ×${tokens.length}` : groupName(tokens);
-}
-
-// Ajoute des tokens au combat : un PJ par ligne, sans nombre ; les créatures identiques ensemble.
+// Ajoute des tokens au combat : un PJ par ligne, sans nombre ; chaque créature sur sa ligne,
+// avec son propre jet.
 export function addTokens(fight, tokens, rng = Math.random) {
   const known = new Set(fight.rows.flatMap(r => r.tokenIds));
   const fresh = tokens.filter(t => !known.has(t.id));
@@ -107,16 +94,8 @@ export function addTokens(fight, tokens, rng = Math.random) {
   for (const t of fresh.filter(x => x.kind === 'pc')) {
     rows.push({ id: rowId(rows), kind: 'pc', name: t.name, tokenIds: [t.id], mod: 0, roll: null, total: null });
   }
-  let f = settle({ ...fight, rows: sortRows(rows) });
-  const groups = new Map();
-  for (const t of fresh) {
-    if (t.kind === 'pc') continue;
-    const k = groupKey(t);
-    if (!groups.has(k)) groups.set(k, []);
-    groups.get(k).push(t);
-  }
-  for (const list of groups.values()) f = addGroup(f, { name: rowName(list), tokens: list }, rng);
-  return f;
+  const f = settle({ ...fight, rows: sortRows(rows) });
+  return addEach(f, fresh.filter(t => t.kind !== 'pc'), rng);
 }
 
 // Un groupe redevient une ligne et un jet par token.

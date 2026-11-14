@@ -198,7 +198,7 @@ export class Db {
   }
   deleteCampaign(id) {
     this.tx(() => {
-      for (const t of ['memberships', 'invitations', 'api_tokens', 'scenes', 'bestiary', 'worlds']) this.db.prepare(`DELETE FROM ${t} WHERE campaign_id = ?`).run(id);
+      for (const t of ['memberships', 'invitations', 'api_tokens', 'scenes', 'bestiary', 'worlds', 'damage_log']) this.db.prepare(`DELETE FROM ${t} WHERE campaign_id = ?`).run(id);
       this.db.prepare('DELETE FROM docs WHERE campaign = ?').run(id);
       this.db.prepare('DELETE FROM rolls WHERE campaign = ?').run(id);
       this.q.delCampaign.run(id);

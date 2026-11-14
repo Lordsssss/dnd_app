@@ -153,6 +153,66 @@ test('une carte se crée, s’ouvre, se synchronise entre le portable et la TV, 
   } finally { await s.stop(); }
 });
 
+test('journal des PV : chaque coup est gardé en base, une annulation le marque, une autre campagne n’y a pas accès', async () => {
+  const s = await startMap();
+  let dm = null;
+  try {
+    const up = await s.call('/api/c/c1/assets?kind=map&name=crypte.png', { method: 'POST', raw: PNG });
+    const created = (await s.call('/api/c/c1/map/scenes', { method: 'POST', body: { name: 'Crypte', image: up.body.ref, cols: 20, rows: 10 } })).body;
+    dm = ws(s.port, '/ws/map', { t: 'hello', token: s.token, campaign: 'c1', role: 'dm' });
+    await dm.next(m => m.t === 'welcome');
+    dm.send({ t: 'open', scene: created.id });
+    await dm.next(m => m.t === 'scene');
+    let id = 10;
+    const op = async o => { const n = id++; dm.send({ t: 'op', id: n, scene: created.id, op: o }); return dm.next(m => m.t === 'ack' && m.id === n); };
+    await op({ type: 'token.add', tokens: [
+      { id: 'p', kind: 'pc', name: 'Ren', x: 2, y: 2 },
+      { id: 'g', kind: 'enemy', name: 'Gobelin 1', x: 5, y: 5, hp: { current: 7, max: 7 } },
+      { id: 'o', kind: 'enemy', name: 'Ogre', x: 6, y: 5 },
+    ] });
+    await op({ type: 'fight.create', tokenIds: ['p', 'g', 'o'] });
+    const doc = () => s.app.map.storeOf('c1').open(created.id).doc;
+    const ren = doc().fight.rows.find(r => r.kind === 'pc');
+    await op({ type: 'fight.row', rowId: ren.id, patch: { total: 30 } });
+    assert.equal(doc().fight.current, ren.id);
+
+    await op({ type: 'token.move', moves: [{ id: 'p', x: 3, y: 2 }] });
+    await op({ type: 'token.update', ids: ['g'], patch: { name: 'Gobelin 1', conditions: ['Prone'] } });
+    await op({ type: 'token.hp', ids: ['g'], delta: -10 });
+    assert.equal(doc().tokens.find(t => t.id === 'g').hp.current, 0);
+    await op({ type: 'token.hpSet', id: 'o', value: 59 });
+    assert.deepEqual(doc().tokens.find(t => t.id === 'o').hp, { current: 59, max: 59 }, 'des PV tapés sur un token qui n’en avait pas');
+    await op({ type: 'token.hp', ids: ['o'], delta: -12 });
+
+    let log = (await s.call('/api/c/c1/map/damage-log')).body;
+    assert.deepEqual(log.entries.map(e => [e.target, e.kind, e.amount, e.hpBefore, e.hpAfter]), [
+      ['Gobelin 1', 'damage', 10, 7, 0],
+      ['Ogre', 'set', null, null, 59],
+      ['Ogre', 'damage', 12, 59, 47],
+    ], 'le dépassement compte dans le coup ; ni un déplacement ni une modification sans PV n’écrit rien');
+    assert.equal(log.entries[0].turn, 'Ren', 'le tour pendant lequel le coup est noté');
+    assert.equal(log.entries[0].round, 1);
+    assert.ok(log.entries[0].fight, 'chaque combat a son identifiant');
+    assert.equal(log.entries[0].sceneName, 'Crypte');
+    assert.deepEqual(log.totals, { hits: 2, damage: 22, damageToEnemies: 22, byTurn: { Ren: 22 } });
+
+    dm.send({ t: 'undo', id: 100, scene: created.id });
+    await dm.next(m => m.t === 'ack' && m.id === 100);
+    assert.equal(doc().tokens.find(t => t.id === 'o').hp.current, 59);
+    log = (await s.call('/api/c/c1/map/damage-log')).body;
+    assert.equal(log.entries[2].undone, true, 'annulé : gardé, mais marqué');
+    assert.equal(log.totals.damage, 10);
+    dm.send({ t: 'redo', id: 101, scene: created.id });
+    await dm.next(m => m.t === 'ack' && m.id === 101);
+    assert.equal((await s.call('/api/c/c1/map/damage-log')).body.totals.damage, 22, 'rétabli : il recompte');
+
+    const ren2 = await login(s.base, 'ren', '1111');
+    assert.equal((await api(s.base, ren2.body.token)('/api/c/c1/map/damage-log')).status, 403, 'un joueur ne le lit pas');
+    const bea = await login(s.base, 'bea', '3333');
+    assert.equal((await api(s.base, bea.body.token)('/api/c/c1/map/damage-log')).status, 403, 'le MJ d’une autre campagne non plus');
+  } finally { dm?.close(); await s.stop(); }
+});
+
 test('catalogue de tokens : le nom se lit dans le fichier, une créature retrouve son image', () => {
   assert.deepEqual(parseTokenName('Gorgon_A1_Large_Scale125_Monstrosity_01.png'), { name: 'Gorgon', size: 2 });
   assert.deepEqual(parseTokenName('Adult_Silver_Dragon_A1_Huge_Scale233_Dragon_01.png'), { name: 'Adult Silver Dragon', size: 3 });
