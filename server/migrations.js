@@ -253,6 +253,24 @@ export const MIGRATIONS = [
       `);
     },
   },
+  {
+    id: 7,
+    name: 'Memes de la carte : ceux posés sur chaque scène, et la mèmothèque de la campagne',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS map_memes (
+          campaign_id TEXT NOT NULL, scene TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL,
+          account TEXT, expires INTEGER, created_at INTEGER NOT NULL,
+          PRIMARY KEY (campaign_id, scene, id)
+        );
+        CREATE TABLE IF NOT EXISTS meme_shelf (
+          campaign_id TEXT NOT NULL, key TEXT NOT NULL, data TEXT NOT NULL,
+          uses INTEGER NOT NULL DEFAULT 1, last_used INTEGER NOT NULL,
+          PRIMARY KEY (campaign_id, key)
+        );
+      `);
+    },
+  },
 ];
 
 export function pendingMigrations(db) {

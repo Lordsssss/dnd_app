@@ -6,9 +6,11 @@ import { ModalHost } from '/app/dialogs.js';
 import { sortFolders, wallIssues } from '/shared/map/scene.js';
 import { campaignId, getToken, goLogin } from './net.js';
 import {
-  app, fitToMap, notify, op, openScene, redo, refresh, requestDraw, selectedTokens, sendLive, sendToTv,
-  setDraw, start, subscribe, toast, toWorld, undo, viewRect,
+  app, fitToMap, notify, op, openScene, redo, refresh, request, requestDraw, selectedTokens, sendLive, sendToTv,
+  setDraw, setTable, start, subscribe, toast, toWorld, tokenAt, undo, viewRect,
 } from './state.js';
+import { MemeMaker, MemeOverlay, ShelfDialog, defaultSize, fetchMeme, pickTransfer, uploadMeme } from './memes.js';
+import { MemePanel } from './table.js';
 import { drawScene, fitCamera, boundsRect, label, tokenBox } from './render.js';
 import { tokenImage } from './images.js';
 import { selectTool, placeTool, rulerTool, templateTool, drawTool, rotateTokens } from './tools/play.js';
@@ -169,6 +171,39 @@ function drawAll() {
     tokenStyle: (t, seen) => (t.hidden ? 0.55 : seen ? 1 : 0.7),
     afterFog: drawOverlays,
   });
+  // Les memes : le MJ les voit tous, même collés à un token caché ; le mode sérieux les cache.
+  const positions = app.t.drag?.moved ? app.t.drag.positions : app.t.settling || null;
+  app.memeOverlay?.render({ doc: app.doc, cam: app.cam, seen: null, hidden: app.table.serious, positions });
+}
+
+// --------------------------------------------------------------- Memes du MJ
+
+function memeCenter() {
+  const r = viewRect();
+  return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+}
+
+export async function takeMeme(src, at = memeCenter()) {
+  try {
+    const image = src.file ? await uploadMeme(src.file) : await fetchMeme(src.url);
+    app.dialog = { kind: 'memeMaker', mk: 'image', image, at };
+    notify();
+  } catch (e) { toast(e.message, 'error', 5000); }
+}
+
+function placeMeme({ kind, image, top, bottom, text, ttl, at, size }) {
+  request({ t: 'meme', action: 'add', meme: {
+    kind, image: image?.ref || '', name: image?.name || '', top, bottom, text, ttl,
+    x: at.x, y: at.y, size: size || defaultSize(kind, app.cam, app.size),
+  } });
+}
+
+function pinMeme(m) {
+  const at = app.memeOverlay.where(m);
+  if (!at) return;
+  if (m.attach) { request({ t: 'meme', action: 'update', memeId: m.id, patch: { attach: null, x: at.x, y: at.y } }); return; }
+  app.memePin = { id: m.id, at };
+  refresh();
 }
 
 // --------------------------------------------------------------- Le canvas et la souris
@@ -176,6 +211,7 @@ function drawAll() {
 function MapCanvas() {
   const ref = useRef(null);
   const wrap = useRef(null);
+  const layer = useRef(null);
 
   useEffect(() => {
     const canvas = ref.current;
@@ -196,10 +232,29 @@ function MapCanvas() {
     ro.observe(wrap.current);
     fit();
 
+    app.memeOverlay = new MemeOverlay(layer.current, {
+      interactive: true,
+      canEdit: () => true,
+      onUpdate: (id, patch) => request({ t: 'meme', action: 'update', memeId: id, patch }),
+      onRemove: id => request({ t: 'meme', action: 'remove', ids: [id] }),
+      onEdit: m => { app.dialog = { kind: 'memeMaker', mk: m.kind, image: m.image ? { ref: m.image } : null, edit: m }; notify(); },
+      onPin: pinMeme,
+    });
+
     let pan = null;
     const world = e => toWorld(e.offsetX, e.offsetY);
     const down = e => {
       canvas.setPointerCapture(e.pointerId);
+      app.memeOverlay?.select(null);
+      if (app.memePin && e.button === 0) {
+        const w = world(e);
+        const t = tokenAt(w.x, w.y);
+        const pin = app.memePin;
+        app.memePin = null;
+        if (t) request({ t: 'meme', action: 'update', memeId: pin.id, patch: { attach: t.id, x: pin.at.x - t.x, y: pin.at.y - t.y } });
+        refresh();
+        return;
+      }
       if (e.button === 1 || e.button === 2 || app.t.space) {
         pan = { x: e.clientX, y: e.clientY, cam: { ...app.cam } };
         canvas.style.cursor = 'grabbing';
@@ -255,8 +310,19 @@ function MapCanvas() {
     };
   }, []);
 
-  return html`<div class="mc-wrap" ref=${wrap}>
+  const dragOver = e => { if (app.doc && !app.dialog) e.preventDefault(); };
+  const drop = e => {
+    if (!app.doc || app.dialog) return;
+    const src = pickTransfer(e.dataTransfer);
+    if (!src) return;
+    e.preventDefault();
+    const r = ref.current.getBoundingClientRect();
+    takeMeme(src, toWorld(e.clientX - r.left, e.clientY - r.top));
+  };
+  return html`<div class="mc-wrap" ref=${wrap} onDragOver=${dragOver} onDrop=${drop}>
     <canvas class="mc" ref=${ref}></canvas>
+    <div class="meme-host" ref=${layer}></div>
+    ${app.memePin ? html`<div class="mc-banner">Clique sur un token pour y coller le meme. Échap pour annuler.</div>` : null}
     ${app.loadingMap ? html`<div class="mc-msg">Chargement de la carte…</div>` : null}
     ${!app.doc && app.conn === 'online' ? html`<div class="mc-msg big">
       ${app.scenes.length ? 'Choisis une carte en haut.' : html`Aucune carte. <button type="button" class="btn primary" onClick=${() => { app.dialog = { kind: 'scene' }; notify(); }}>Créer la première</button>`}
@@ -488,8 +554,30 @@ function TopBar() {
       <button type="button" class=${`btn tiny ${doc?.frozen ? 'on warn' : ''}`} disabled=${!doc} title="Replace tes tokens sans rien révéler : la TV garde son image" onClick=${() => op({ type: 'frozen.set', value: !doc.frozen })}>${doc?.frozen ? 'TV gelée' : 'Geler'}</button>
       <button type="button" class="btn tiny ghost" disabled=${!doc} title="Oublie tout ce qui a été vu sur cette carte" onClick=${() => { if (confirm(tx('Oublier tout ce qui a été vu sur cette carte ? Ctrl+Z pour revenir en arrière.'))) op({ type: 'fog.reset' }); }}>Brouillard à zéro</button>
     </div>
+    <${PlayersGroup} />
     <span class=${`conn-dot ${app.conn}`} title=${app.conn === 'online' ? 'Connecté' : 'Hors ligne'}></span>
   </header>`;
+}
+
+function pickMemeFile() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/png,image/jpeg,image/gif,image/webp';
+  input.onchange = () => { if (input.files[0]) takeMeme({ file: input.files[0] }); };
+  input.click();
+}
+
+// Ce que les joueurs peuvent faire depuis leur onglet « Carte ».
+function PlayersGroup() {
+  const tb = app.table;
+  const n = app.memeOverlay?.count || 0;
+  return html`<div class="group tv-group">
+    <span class="lbl">Joueurs</span>
+    <button type="button" class=${`btn tiny ${tb.lock ? 'on warn' : ''}`} title="Chaque onglet de joueur suit le cadrage de la TV et ne peut plus bouger la vue" onClick=${() => setTable({ lock: !tb.lock })}>${tb.lock ? '🔒 Vue verrouillée' : 'Verrouiller la vue'}</button>
+    <button type="button" class="btn tiny" title="Ramène une fois la vue de chaque joueur sur le cadrage de la TV, sans la verrouiller" onClick=${() => request({ t: 'summon' })}>Ramener sur la TV</button>
+    <button type="button" class=${`btn tiny ${tb.blockTokens ? 'on warn' : ''}`} title="Les joueurs ne déplacent plus leurs tokens" onClick=${() => setTable({ blockTokens: !tb.blockTokens })}>${tb.blockTokens ? 'Tokens bloqués' : 'Bloquer leurs tokens'}</button>
+    <button type="button" class=${`btn tiny ${tb.serious ? 'on warn' : ''}`} title="Memes, droits des joueurs, mode sérieux" onClick=${() => { app.dialog = { kind: 'memes' }; notify(); }}>${tb.serious ? 'Mode sérieux' : 'Memes'}${n ? ` · ${n}` : ''}</button>
+  </div>`;
 }
 
 function Toasts() {
@@ -508,6 +596,21 @@ function Dialogs() {
   if (d.kind === 'autowalls') return html`<${AutoWallsDialog} />`;
   if (d.kind === 'scenefile') return html`<${SceneFileDialog} />`;
   if (d.kind === 'library') return html`<${ImageLibraryDialog} key=${d.tab || ''} />`;
+  if (d.kind === 'memes') return html`<${MemePanel} onImage=${() => pickMemeFile()} />`;
+  const close = () => { app.dialog = null; notify(); };
+  if (d.kind === 'shelf') {
+    return html`<${ShelfDialog} canDelete onClose=${close} toast=${toast} onPick=${m => {
+      app.dialog = { kind: 'memeMaker', mk: m.kind, image: m.image ? { ref: m.image, name: m.name } : null, initial: m, size: m.size };
+      notify();
+    }} />`;
+  }
+  if (d.kind === 'memeMaker') {
+    return html`<${MemeMaker} kind=${d.mk} image=${d.image} initial=${d.edit || d.initial || {}} edit=${d.edit} onClose=${close} onDone=${v => {
+      close();
+      if (d.edit) request({ t: 'meme', action: 'update', memeId: d.edit.id, patch: d.mk === 'text' ? { text: v.text } : { top: v.top, bottom: v.bottom } });
+      else placeMeme({ kind: d.mk, image: d.image, ...v, at: d.at || memeCenter(), size: d.size });
+    }} />`;
+  }
   return null;
 }
 
@@ -517,6 +620,9 @@ function onKey(e) {
   const t = e.target;
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
   if (app.dialog || store.ui.modal) return;
+  if (e.key === 'Escape' && app.memePin) { app.memePin = null; refresh(); return; }
+  const sel = app.memeOverlay?.sel;
+  if ((e.key === 'Delete' || e.key === 'Backspace') && sel && !app.selection.size) { e.preventDefault(); request({ t: 'meme', action: 'remove', ids: [sel] }); return; }
   const k = e.key.toLowerCase();
   if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
   if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); redo(); return; }
@@ -544,6 +650,15 @@ function onKeyUp(e) {
   if (e.code === 'Space') app.t.space = false;
 }
 
+// Ctrl+V sur la carte : une image ou une adresse d'image devient un meme.
+function onPaste(e) {
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  if (app.dialog || store.ui.modal || !app.doc) return;
+  const src = pickTransfer(e.clipboardData);
+  if (src) { e.preventDefault(); takeMeme(src); }
+}
+
 // --------------------------------------------------------------- Connexion et coquille
 
 function App() {
@@ -553,8 +668,9 @@ function App() {
     const b = subscribeStore(() => force(x => x + 1));
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('paste', onPaste);
     if (getToken()) start();
-    return () => { a(); b(); window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKeyUp); };
+    return () => { a(); b(); window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKeyUp); window.removeEventListener('paste', onPaste); };
   }, []);
   if (!getToken()) {
     return html`<div class="join"><div class="join-card"><h1>Carte du MJ</h1><p class="muted">Connecte-toi d'abord à l'application.</p>

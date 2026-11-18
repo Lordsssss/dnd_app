@@ -15,7 +15,8 @@ function useCardData(ref) {
   const key = ref ? JSON.stringify(ref) : '';
   useEffect(() => {
     let live = true;
-    if (!ref) { setState({ none: true }); return undefined; }
+    // Une fiche de joueur liée : rien à montrer ici, le joueur a sa propre fiche.
+    if (!ref || ref.t === 'char') { setState({ none: true }); return undefined; }
     setState({ loading: true });
     const load = ref.t === 'monster'
       ? data5e.entry('monster', ref.name, ref.source).then(e => (e?.monster ? { monster: e.monster, link: bestiaryLink(e.monster.name, e.monster.source) } : { error: 'Créature absente des données 5etools' }))

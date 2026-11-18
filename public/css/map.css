@@ -296,3 +296,121 @@ body.map-page { height: 100vh; overflow: hidden; background: var(--bg); }
 .lib-acts { display: flex; gap: 3px; align-items: center; }
 .lib-acts .sel { flex: 1; min-width: 0; font-size: 11px; padding: 2px 4px; }
 @media (max-width: 720px) { .lib-grid { grid-template-columns: 1fr; } .lib-folders { grid-auto-flow: column; overflow-x: auto; } }
+
+/* ------------------------------------------------------------ Memes */
+/* Le calque posé sur le canvas : rien ne capte la souris, sauf les memes qu'on peut modifier. */
+.meme-host, #tv-memes { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 5; }
+#tv-memes { position: fixed; }
+.meme { position: absolute; left: 0; top: 0; transform-origin: 50% 50%; user-select: none; -webkit-user-select: none; }
+.meme.ro { pointer-events: none; }
+.meme.rw { pointer-events: auto; cursor: grab; touch-action: none; }
+.meme.rw:active { cursor: grabbing; }
+.meme.img img { display: block; width: 100%; height: auto; pointer-events: none; border-radius: 2px; }
+.meme.broken { display: none; }
+.meme .cap, .meme-t {
+  font-family: Impact, Haettenschweiler, 'Arial Narrow Bold', 'Arial Black', sans-serif; font-weight: 900;
+  color: #fff; text-transform: uppercase; text-align: center; line-height: 1.05; letter-spacing: .01em;
+  -webkit-text-stroke: .06em #000; paint-order: stroke fill;
+  text-shadow: 0 0 .08em #000, .04em .04em 0 #000, -.04em -.04em 0 #000, .04em -.04em 0 #000, -.04em .04em 0 #000;
+  overflow-wrap: anywhere;
+}
+.meme .cap { position: absolute; left: 4%; right: 4%; font-size: calc(var(--w, 300px) * .11); pointer-events: none; }
+.meme .cap.top { top: 3%; }
+.meme .cap.bottom { bottom: 3%; }
+.meme.txt { white-space: pre-wrap; width: max-content; max-width: 40em; }
+.meme.txt .meme-t { display: block; }
+.meme.on { outline: 2px dashed #6fb1ff; outline-offset: 3px; }
+.mh { position: absolute; z-index: 2; pointer-events: auto; }
+.mh-del, .mh-pin {
+  top: -14px; width: 26px; height: 26px; border-radius: 50%; border: 2px solid #fff; padding: 0;
+  font: 700 13px/1 Roboto, system-ui, sans-serif; cursor: pointer; display: grid; place-items: center;
+}
+.mh-del { right: -14px; background: #c62828; color: #fff; }
+.mh-pin { left: -14px; background: #26303a; color: #fff; }
+.mh-pin.on { background: #ffd24a; }
+.mh-rot { top: -34px; left: 50%; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: #fff; border: 2px solid #6fb1ff; cursor: grab; }
+.mh-size { right: -9px; bottom: -9px; width: 16px; height: 16px; background: #fff; border: 2px solid #6fb1ff; cursor: nwse-resize; }
+
+/* Réactions : un emoji qui s'envole, un repère qui pulse. Jamais gardés. */
+.react { position: absolute; transform: translate(-50%, -50%); pointer-events: none; z-index: 6; }
+.react-i { display: block; font-size: 46px; line-height: 1; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .7)); animation: react-up 3s ease-out forwards; }
+@keyframes react-up {
+  0% { transform: translate(0, 10px) scale(.3); opacity: 0; }
+  12% { transform: translate(0, 0) scale(1.25); opacity: 1; }
+  25% { transform: translate(0, -6px) scale(1); }
+  100% { transform: translate(var(--dx, 0), -90px) scale(1); opacity: 0; }
+}
+.ping { width: 0; height: 0; }
+.ping-ring { position: absolute; left: -30px; top: -30px; width: 60px; height: 60px; border-radius: 50%; border: 4px solid #ffe066; box-shadow: 0 0 12px #ffe066; animation: ping 1.4s ease-out 2 forwards; opacity: 0; }
+.ping-ring.late { animation-delay: .35s; }
+.ping-name { position: absolute; left: 50%; top: 36px; transform: translateX(-50%); white-space: nowrap; padding: 2px 8px; border-radius: 4px; background: rgba(8, 10, 14, .85); color: #ffe066; font: 700 13px Roboto, system-ui, sans-serif; animation: fade-late 3s forwards; }
+@keyframes ping { 0% { transform: scale(.2); opacity: 1; } 100% { transform: scale(1.6); opacity: 0; } }
+@keyframes fade-late { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+
+/* Fenêtres des memes */
+.meme-back { z-index: 80; }
+.meme-maker { display: grid; gap: 10px; }
+.meme-maker label { display: grid; gap: 4px; font-size: 13px; }
+.meme-ttl { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.meme-ttl .lbl { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); margin-right: 4px; }
+.meme-prev-wrap { display: grid; place-items: center; padding: 10px; background: #05070a; border-radius: 6px; min-height: 120px; overflow: hidden; }
+.meme.prev { position: relative; transform: none; }
+.meme.prev img { max-height: 46vh; object-fit: contain; }
+.meme-search { width: 100%; margin-bottom: 10px; }
+.shelf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; max-height: 62vh; overflow-y: auto; }
+.shelf-item { position: relative; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: #05070a; cursor: pointer; overflow: hidden; min-height: 90px; display: grid; place-items: center; }
+.shelf-item:hover { border-color: var(--blue); }
+.shelf-item .meme-prev-wrap { padding: 4px; min-height: 0; background: transparent; }
+.shelf-text { padding: 10px; font: 900 18px Impact, 'Arial Black', sans-serif; color: #fff; text-transform: uppercase; -webkit-text-stroke: 1px #000; }
+.shelf-uses { position: absolute; left: 4px; bottom: 4px; padding: 1px 5px; border-radius: 3px; background: rgba(0, 0, 0, .7); color: #fff; font-size: 11px; }
+.shelf-del { position: absolute; right: 4px; top: 4px; width: 22px; height: 22px; border-radius: 50%; background: #c62828; color: #fff; font-size: 12px; display: grid; place-items: center; }
+
+/* Panneau du MJ : joueurs et memes */
+.tb-panel { display: grid; gap: 16px; }
+.tb-panel section { display: grid; gap: 8px; }
+.tb-panel h3 { margin: 0; font-size: 14px; }
+.tb-panel p { margin: 0; }
+.m-body label.tb-switch { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--ink); cursor: pointer; }
+.m-body label.tb-switch input { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--accent); }
+.tb-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.tb-players { display: grid; gap: 6px; }
+.tb-player { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; }
+.tb-name { flex: 1; min-width: 140px; font-weight: 700; }
+
+/* ------------------------------------------------------------ Onglet d'un joueur */
+body.player-page { overscroll-behavior: none; }
+.pl-app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+.pl-top { display: flex; align-items: center; gap: 10px; padding: 6px 12px; background: var(--bar); border-bottom: 1px solid var(--line); min-height: 40px; }
+.pl-top .home { color: var(--ink); text-decoration: none; font-size: 18px; }
+.pl-top .camp-name { font-weight: 700; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-top .grow { flex: 1; }
+.pl-main { position: relative; flex: 1; min-height: 0; display: flex; }
+.pl-wrap { flex: 1; }
+.pl-banners { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: grid; gap: 6px; justify-items: center; z-index: 10; pointer-events: none; width: max-content; max-width: calc(100% - 24px); }
+.pl-banner { padding: 6px 12px; border-radius: 5px; background: rgba(20, 24, 30, .92); color: var(--ink); font-size: 13px; text-align: center; }
+.pl-banner.lock { color: #ffe066; border: 1px solid rgba(255, 224, 102, .5); }
+.pl-banner.warn { color: #ffd2a0; }
+.pl-bar {
+  position: absolute; left: 50%; bottom: max(12px, env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 10;
+  display: flex; align-items: center; gap: 6px; max-width: calc(100% - 16px); overflow-x: auto; padding: 6px 8px;
+  background: rgba(22, 28, 34, .96); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow);
+}
+.pl-bar .sep { width: 1px; height: 22px; background: var(--line); flex: none; }
+.pl-bar .btn { white-space: nowrap; flex: none; }
+.pl-reacts { display: flex; gap: 2px; flex: none; }
+.react-b { width: 34px; height: 34px; padding: 0; font-size: 20px; line-height: 1; border: 1px solid transparent; border-radius: 7px; background: transparent; cursor: pointer; }
+.react-b:hover { background: var(--paper-3); }
+.react-b.on { background: #1d3f63; border-color: var(--blue); }
+.meme-menu {
+  position: absolute; z-index: 20; width: 260px; display: grid; gap: 6px; padding: 8px;
+  background: rgba(22, 28, 34, .98); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow);
+}
+.meme-menu-row { display: flex; flex-wrap: wrap; gap: 4px; }
+.player-page .mc-msg { z-index: 4; }
+@media (max-width: 640px) {
+  .react-b { width: 38px; height: 38px; font-size: 22px; }
+  /* Sur un téléphone : les réactions défilent sur une ligne, les boutons passent dessous. */
+  .pl-bar { left: 8px; right: 8px; transform: none; max-width: none; flex-wrap: wrap; justify-content: center; overflow: visible; }
+  .pl-reacts { max-width: 100%; overflow-x: auto; }
+  .pl-bar .sep { display: none; }
+}

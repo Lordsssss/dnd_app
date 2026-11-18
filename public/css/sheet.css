@@ -150,6 +150,9 @@ label.btn { cursor: pointer; }
   padding: 8px 14px 9px; font-weight: 700; font-size: 14px; border-radius: 8px 8px 0 0; white-space: nowrap;
 }
 .page-tab.on { opacity: 1; background: var(--bg); color: var(--ink); }
+/* L'onglet « Carte » d'un joueur : un lien, ouvert dans un autre onglet du navigateur. */
+.page-tab.map-tab { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; margin-left: auto; }
+.page-tab.map-tab svg { width: 16px; height: 16px; }
 .page-tab.secret.on { color: var(--accent); }
 
 .menu-back { position: fixed; inset: 0; z-index: 60; }

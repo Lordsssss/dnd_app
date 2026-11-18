@@ -14,6 +14,8 @@ A self-hosted table for D&D 5e campaigns: live character sheets, a DM map with f
 - Spells fully editable. Spells granted by a subclass, feat, species or item are marked free and don't count. Limits come from the class tables (2024: prepared spells by level) and only warn.
 - Dice rolls on every bonus, shared log, rests, level-up wizard, inventory with the party stash and fund, notes with a pencil layer, a secret page only they and the DM see.
 - The world map, showing only what the DM marked as known.
+- A **Map** tab that opens the table's map in another browser tab, at `/c/<campaign>/carte/joueur`: the map on the TV under the same fog, without hidden tokens, HP numbers or initiative. They pan and zoom freely unless the DM locks the view on the TV, and drag their own tokens: walls and closed doors stop them, and the distance shows in ft. A PC token belongs to the player of the sheet it is linked to, or of the sheet with the same name; the DM can let a player move any other token too, a familiar or a mount.
+- **Memes** on that map: paste an image or a GIF with Ctrl+V, drag it in, or paste its address; add top and bottom captions before posting it; text stickers; reactions and a "here!" ping that float and fade; a meme can stick to a token and follow it; it stays or fades after 10 s or a minute. Every meme posted goes into the campaign's **meme shelf**, searchable by caption. Right-click, or a long press on a phone, opens the meme menu where you point.
 
 **The DM of a campaign** (and co-DMs), in the DM panel
 - **Members**: roles, invitation links (uses, expiry, QR code).
@@ -25,6 +27,7 @@ A self-hosted table for D&D 5e campaigns: live character sheets, a DM map with f
 - **API tokens**: give a tool or an AI assistant the DM's rights on this campaign and nothing else.
 - **Log** of everything that happened in the campaign.
 - **Map** at `/c/<campaign>/carte`: upload a map, measure the grid by dragging over one square, Auto-walls from the image, then walls and doors by hand. Fog that follows the tokens, a TV window, initiative with one line per creature and its HP and damage boxes, rulers, templates, drawing. Token details: HP, conditions, notes, stat block. Every HP change is kept in a damage log, read with `GET /api/c/<campaign>/map/damage-log` (DM only).
+- **Players** in the map's top bar: lock every player's view on the TV framing, bring their views back once, block their tokens. The **Memes** panel turns memes on or off for everyone or for one player, wipes a player's memes, shows or hides them on the TV, and has a **serious mode** that hides every meme for everyone without deleting any. The DM always keeps meme rights and can move or delete any meme.
 - **World map** at `/c/<campaign>/monde`: an Azgaar `.map` file or any image. Corrected names, DM notes, a text for the players, places, the party's pin.
 
 **The admin** (one or more accounts with the admin flag)
@@ -32,6 +35,8 @@ A self-hosted table for D&D 5e campaigns: live character sheets, a DM map with f
 - Campaigns seen from outside: members, size, change the lead DM, delete. The admin does **not** see inside a campaign without being a member.
 - Sign-up mode: by invitation (default), open, or closed.
 - Server: 5etools update, token library, backups, and the vault bridge.
+
+Fog is drawn in the browser, on the TV as on a player's tab, as in Owlbear Rodeo: the full map image reaches the player's browser, so a player who opens the developer tools can see the whole map. Hidden tokens, HP and notes never leave the server.
 
 ## Setting up a campaign
 

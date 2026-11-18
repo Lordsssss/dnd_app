@@ -41,6 +41,7 @@ export const DUMMY_HASH = hashPin('0000000000');
 // Pages de l'application : une coquille HTML par outil, la campagne est dans l'adresse.
 const PAGES = [
   [/^\/c\/[\w-]+\/carte\/tv\/?$/, 'tv.html'],
+  [/^\/c\/[\w-]+\/carte\/joueur\/?$/, 'joueur.html'],
   [/^\/c\/[\w-]+\/carte\/?$/, 'carte.html'],
   [/^\/c\/[\w-]+\/monde\/?$/, 'monde.html'],
 ];

@@ -424,6 +424,8 @@ function PartyTab({ library }) {
   const place = () => {
     const tokens = party.filter(c => on[c.name] && !present.has(c.name)).map(c => ({
       id: newTokenId(), name: c.name, kind: 'pc', vision: true, image: images[c.name] || '', size: 1, init: 0,
+      // La fiche liée : son joueur déplace ce token depuis son onglet « Carte ».
+      ref: { t: 'char', id: c.id },
     }));
     if (!tokens.length) return toast('Tous les PJ cochés sont déjà sur cette carte');
     app.placing = { tokens, title: 'Groupe : clic pour poser' };
@@ -535,8 +537,13 @@ export function TokenEditor() {
     conditions: t?.conditions || [], notes: t?.notes || '', vision: !!t?.vision, hidden: !!t?.hidden, color: t?.color || '',
   }));
   const [beasts, setBeasts] = useState([]);
+  const [players, setPlayers] = useState([]);
   const [ref, setRef] = useState(t?.ref || null);
-  useEffect(() => { api(`/api/c/${campaignId}/bestiary`).then(setBeasts).catch(() => {}); }, []);
+  const [control, setControl] = useState(t?.control || []);
+  useEffect(() => {
+    api(`/api/c/${campaignId}/bestiary`).then(setBeasts).catch(() => {});
+    api(`/api/c/${campaignId}/map/players`).then(setPlayers).catch(() => {});
+  }, []);
   if (!t) return null;
   const set = patch => setF({ ...f, ...patch });
   const toggleCond = c => set({ conditions: f.conditions.includes(c) ? f.conditions.filter(x => x !== c) : [...f.conditions, c] });
@@ -546,13 +553,14 @@ export function TokenEditor() {
       type: 'token.update', id: t.id,
       patch: {
         name: f.name.trim() || t.name, kind: f.kind, size: Number(f.size) || 1, vision: f.vision, hidden: f.hidden, color: f.color,
-        conditions: f.conditions, notes: f.notes, ref,
+        conditions: f.conditions, notes: f.notes, ref, control,
         hp: hpMax > 0 ? { max: hpMax, current: f.hpCur === '' ? hpMax : Number(f.hpCur) } : null,
       },
     });
     close();
   };
-  const refValue = ref?.t === 'beast' ? `beast:${ref.id}` : ref?.t === 'monster' ? 'monster' : '';
+  const refValue = ref?.t === 'beast' ? `beast:${ref.id}` : ref?.t === 'monster' ? 'monster' : ref?.t === 'char' ? `char:${ref.id}` : '';
+  const toggleControl = id => setControl(control.includes(id) ? control.filter(x => x !== id) : [...control, id]);
   return html`<${Dialog} title=${`Token : ${t.name}`} wide>
     <div class="te-grid">
       <label>Nom <input class="txt" value=${f.name} onInput=${e => set({ name: e.target.value })} /></label>
@@ -562,7 +570,13 @@ export function TokenEditor() {
       <label>PV <span class="te-hp"><input class="num" type="number" min="0" placeholder="actuels" value=${f.hpCur} onInput=${e => set({ hpCur: e.target.value })} /> / <input class="num" type="number" min="0" placeholder="max" value=${f.hpMax} onInput=${e => set({ hpMax: e.target.value })} /></span></label>
       <label>Contour <select class="sel" value=${f.color} onChange=${e => set({ color: e.target.value })}>
         <option value="">Selon le camp</option>${['red', 'blue', 'green', 'yellow', 'purple', 'orange', 'white'].map(c => html`<option value=${c}>${c}</option>`)}</select></label>
-      <label>Bloc de stats <select class="sel" value=${refValue} onChange=${e => {
+      ${f.kind === 'pc' ? html`<label title="Le joueur de cette fiche déplace le token depuis son onglet Carte">Fiche du joueur <select class="sel" value=${refValue} onChange=${e => {
+        const v = e.target.value;
+        setRef(v.startsWith('char:') ? { t: 'char', id: v.slice(5) } : null);
+      }}>
+        <option value="">Selon le nom du token</option>
+        ${players.flatMap(p => p.chars.map(c => html`<option value=${`char:${c.id}`}>${c.name} · ${p.name}</option>`))}
+      </select></label>` : html`<label>Bloc de stats <select class="sel" value=${refValue} onChange=${e => {
         const v = e.target.value;
         if (!v) setRef(null);
         else if (v.startsWith('beast:')) setRef({ t: 'beast', id: v.slice(6) });
@@ -570,8 +584,12 @@ export function TokenEditor() {
         <option value="">Aucun</option>
         ${ref?.t === 'monster' ? html`<option value="monster">5etools : ${ref.name}</option>` : null}
         ${beasts.map(b => html`<option value=${`beast:${b.id}`}>${b.name}</option>`)}
-      </select></label>
+      </select></label>`}
     </div>
+    ${players.length ? html`<div class="te-conds" title="Un familier, une monture, une invocation : ces joueurs le déplacent aussi">
+      <span class="lbl">Déplacé aussi par</span>
+      ${players.map(p => html`<button type="button" class=${`chip ${control.includes(p.id) ? 'on' : ''}`} onClick=${() => toggleControl(p.id)}>${p.name}</button>`)}
+    </div>` : null}
     <div class="te-checks">
       <label class="check"><input type="checkbox" checked=${f.vision} onChange=${e => set({ vision: e.target.checked })} /> Donne la vue (éclaire le brouillard)</label>
       <label class="check"><input type="checkbox" checked=${f.hidden} onChange=${e => set({ hidden: e.target.checked })} /> Caché sur la TV</label>

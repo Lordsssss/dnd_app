@@ -22,7 +22,7 @@ export function foldersOf(items, extra = []) {
 export const folderLabel = f => (f === NO_FOLDER ? t('Sans dossier') : f);
 
 export function ImageLibraryDialog() {
-  const [kind, setKind] = useState(app.dialog?.tab === 'map' ? 'map' : 'token');
+  const [kind, setKind] = useState(['map', 'meme'].includes(app.dialog?.tab) ? app.dialog.tab : 'token');
   const [items, setItems] = useState(null);
   const [folder, setFolder] = useState(ALL);
   const [made, setMade] = useState([]);
@@ -68,6 +68,7 @@ export function ImageLibraryDialog() {
   };
   const use = a => {
     if (kind === 'map') app.dialog = { kind: 'scene', image: { path: a.ref, name: a.name, width: a.width, height: a.height } };
+    else if (kind === 'meme' && app.doc) app.dialog = { kind: 'memeMaker', mk: 'image', image: { ref: a.ref, name: a.name } };
     else if (app.doc) app.dialog = { kind: 'add', image: { path: a.ref, name: a.name } };
     else return toast(t('Ouvre d\'abord une carte pour y poser ce token'));
     notify();
@@ -82,6 +83,7 @@ export function ImageLibraryDialog() {
     <div class="tabs">
       <button type="button" class=${kind === 'token' ? 'on' : ''} onClick=${() => setKind('token')}>${t('Tokens')}</button>
       <button type="button" class=${kind === 'map' ? 'on' : ''} onClick=${() => setKind('map')}>${t('Cartes')}</button>
+      <button type="button" class=${kind === 'meme' ? 'on' : ''} onClick=${() => setKind('meme')}>${t('Memes')}</button>
     </div>
     <div class="lib-grid">
       <nav class="lib-folders" aria-label=${t('Dossiers')}>
@@ -101,12 +103,14 @@ export function ImageLibraryDialog() {
         </div>
         <p class="muted small">${kind === 'token'
           ? t('Glisse des images ici. Le nom du fichier sert à retrouver le token : « Goblin_Large.png » donne Goblin, 2 cases. Clic sur une image : la poser sur la carte ouverte.')
-          : t('Glisse des images ici. Clic sur une image : créer une carte avec, grille et brouillard compris.')}</p>
+          : kind === 'meme'
+            ? t('Les images posées en memes par la table. Clic sur une image : la poser en meme sur la carte ouverte.')
+            : t('Glisse des images ici. Clic sur une image : créer une carte avec, grille et brouillard compris.')}</p>
         ${items === null ? html`<p class="muted">${t('Chargement…')}</p>` : null}
         ${items && !shown.length ? html`<p class="muted">${folder === ALL && !q ? t('Aucune image pour l\'instant : envoie la première.') : t('Rien dans ce dossier.')}</p>` : null}
         <div class=${kind === 'token' ? 'lib-list tokens' : 'lib-list maps'}>
           ${shown.map(a => html`<div class="lib-item" key=${a.id}>
-            <button type="button" class="lib-use" title=${kind === 'map' ? t('Créer une carte avec cette image') : t('Poser sur la carte')} onClick=${() => use(a)}>
+            <button type="button" class="lib-use" title=${kind === 'map' ? t('Créer une carte avec cette image') : kind === 'meme' ? t('Poser en meme') : t('Poser sur la carte')} onClick=${() => use(a)}>
               <img loading="lazy" src=${fileUrl(a.ref)} alt="" />
             </button>
             <span class="lib-name" title=${a.name}>${a.name}</span>

@@ -7,7 +7,9 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { HttpError } from './http.js';
 
-export const ASSET_KINDS = ['map', 'token', 'portrait', 'world', 'image'];
+export const ASSET_KINDS = ['map', 'token', 'portrait', 'world', 'image', 'meme'];
+// Une image de meme reste légère : la table entière la charge, GIF animés compris.
+export const MEME_MAX_BYTES = 5_000_000;
 
 // Un dossier d'images : un nom simple, sans barre oblique (« Donjon 2 », « Gobelins »). Vide : sans dossier.
 export const cleanFolder = f => String(f || '').replace(/[\\/]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 80);

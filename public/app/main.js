@@ -113,6 +113,7 @@ function TopBar({ children }) {
     </div>
     <div class="tb-row pages">
       ${pages.map(([k, label]) => html`<button type="button" key=${k} class=${`page-tab ${k === page ? 'on' : ''} ${k === 'secret' ? 'secret' : ''}`} onClick=${() => setView({ page: k })}>${k === 'secret' ? html`${Icon.lock()} ` : ''}${label()}</button>`)}
+      ${isDm() ? null : html`<a class="page-tab map-tab" href=${`/c/${cid}/carte/joueur`} target=${`joueur-${cid}`} rel="noopener" title=${t('Ouvre la carte de la table dans un nouvel onglet')}>${Icon.map()} ${t('Carte')} ↗</a>`}
     </div>
     ${children}
     ${menu ? html`<${Menu} onClose=${() => setMenu(false)} />` : null}

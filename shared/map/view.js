@@ -56,10 +56,12 @@ export function hpBarOf(t) {
   return k > 0 ? Math.max(1, Math.round(k * HP_BAR_STEPS)) / HP_BAR_STEPS : 0;
 }
 
-export function tvTokens(tokens) {
+export function tvTokens(tokens, mine = null) {
   return tokens.filter(t => !t.hidden).map(t => {
-    const { hp, notes, ref, ...rest } = t;
-    return { ...rest, hpBar: t.showHp ? hpBarOf(t) : null };
+    const { hp, notes, ref, control, ...rest } = t;
+    const out = { ...rest, hpBar: t.showHp ? hpBarOf(t) : null };
+    if (mine?.(t)) out.own = true;
+    return out;
   });
 }
 
@@ -67,6 +69,24 @@ export function tvTokens(tokens) {
 export function forTv(msg) {
   if (msg?.t === 'scene' && msg.doc) return { ...msg, doc: { ...msg.doc, tokens: tvTokens(msg.doc.tokens || []) } };
   if (msg?.t === 'update' && msg.set?.tokens) return { ...msg, set: { ...msg.set, tokens: tvTokens(msg.set.tokens) } };
+  return msg;
+}
+
+// Un message du serveur, tel que l'onglet d'un joueur doit le recevoir : ce que reçoit la TV,
+// plus `own` sur les tokens qu'il déplace, et sans l'ordre d'initiative ni ce qui permet de
+// l'annuler. `mine(t)` dit si ce joueur contrôle le token t.
+export function forPlayer(msg, mine) {
+  const strip = m => {
+    const { canUndo, canRedo, undoLabel, redoLabel, ...rest } = m;
+    return rest;
+  };
+  if (msg?.t === 'scene' && msg.doc) return strip({ ...msg, doc: { ...msg.doc, tokens: tvTokens(msg.doc.tokens || [], mine), fight: null } });
+  if (msg?.t === 'update' && msg.set) {
+    const set = { ...msg.set };
+    if (set.tokens) set.tokens = tvTokens(set.tokens, mine);
+    if ('fight' in set) set.fight = null;
+    return strip({ ...msg, set });
+  }
   return msg;
 }
 

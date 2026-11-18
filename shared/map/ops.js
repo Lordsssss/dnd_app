@@ -12,7 +12,10 @@ export function newState() {
   return { tokens: [], explored: {}, view: { mode: 'party' }, tvCamera: null, frozen: false, drawings: [], templates: [], fight: null };
 }
 
-const TOKEN_FIELDS = ['name', 'image', 'kind', 'size', 'scale', 'rotation', 'vision', 'hidden', 'showName', 'showHp', 'defeated', 'init', 'ref', 'notes', 'conditions', 'hp', 'color'];
+const TOKEN_FIELDS = ['name', 'image', 'kind', 'size', 'scale', 'rotation', 'vision', 'hidden', 'showName', 'showHp', 'defeated', 'init', 'ref', 'notes', 'conditions', 'hp', 'color', 'control'];
+// Comptes de joueurs qui peuvent aussi déplacer ce token : un familier, une monture, une invocation.
+// Le joueur d'une fiche liée au token le déplace toujours, sans être dans cette liste.
+export const cleanControl = v => (Array.isArray(v) ? [...new Set(v.map(x => String(x).slice(0, 60)).filter(Boolean))].slice(0, 12) : []);
 const cleanConditions = v => (Array.isArray(v) ? [...new Set(v.map(c => String(c).trim().slice(0, 40)).filter(Boolean))].slice(0, 20) : []);
 // PV d'un token : suivis par le MJ, jamais montrés sur la TV.
 const cleanHp = v => (v && typeof v === 'object' && isNum(Number(v.max)) && Number(v.max) > 0
@@ -56,6 +59,7 @@ function cleanToken(raw, rid) {
     conditions: cleanConditions(raw.conditions),
     hp: cleanHp(raw.hp),
     color: COLORS.has(raw.color) ? raw.color : '',
+    control: cleanControl(raw.control),
   };
 }
 
@@ -211,6 +215,7 @@ const OPS = {
       if ('conditions' in patch) patch.conditions = cleanConditions(patch.conditions);
       if ('hp' in patch) patch.hp = cleanHp(patch.hp);
       if ('color' in patch) patch.color = COLORS.has(patch.color) ? patch.color : '';
+      if ('control' in patch) patch.control = cleanControl(patch.control);
       if ('ref' in patch && !(patch.ref && typeof patch.ref === 'object')) patch.ref = null;
       doc.tokens = doc.tokens.map(t => (ids.has(t.id) ? { ...t, ...patch } : t));
     },
