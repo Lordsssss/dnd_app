@@ -3,7 +3,7 @@
 import { html, render, useEffect, useErrorBoundary, useRef, useState } from './html.js';
 import {
   store, subscribe, resume, logout, setView, setUi, setTheme, setFit, openModal,
-  canEdit, charDoc, charIds, myCharId, mineIds, playChar, isDm, undo, dismissToast, linkClick, api,
+  canEdit, charDoc, charIds, myCharId, mineIds, playChar, isDm, undo, dismissToast, linkClick, api, viewAs, isPreview,
 } from './store.js';
 import { PageFrame } from './frame.js';
 import { PageMain, PageCombat } from './pages-main.js';
@@ -54,6 +54,37 @@ function useStore() {
 
 // ---------------------------------------------------------------- Barre du haut des fiches
 
+// Dans une vue joueur, les liens vers la carte et le monde gardent le joueur regardé.
+const asQuery = () => (viewAs() ? `?as=${encodeURIComponent(viewAs())}` : '');
+
+// Le MJ ouvre la campagne comme un de ses joueurs la voit, en lecture seule, dans un autre onglet.
+function ViewAsButton({ cid }) {
+  const [open, setOpen] = useState(false);
+  const [players, setPlayers] = useState(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = () => setOpen(false);
+    window.addEventListener('click', close);
+    return () => window.removeEventListener('click', close);
+  }, [open]);
+  const toggle = () => {
+    if (!open && players === null) api(`/api/c/${cid}/map/players`).then(setPlayers).catch(() => setPlayers([]));
+    setOpen(!open);
+  };
+  return html`<span class="viewas" onClick=${e => e.stopPropagation()}>
+    <button type="button" class=${`icon-btn ${open ? 'on' : ''}`} title=${t('Voir la campagne comme un joueur')} onClick=${toggle}>${Icon.eye()}</button>
+    ${open ? html`<div class="viewas-pop">
+      <b>${t('Voir comme…')}</b>
+      ${players === null ? html`<p class="muted small">${t('Chargement…')}</p>`
+        : !players.length ? html`<p class="muted small">${t('Aucun joueur dans cette campagne.')}</p>`
+          : players.map(p => html`<a key=${p.id} class="viewas-item" href=${`/c/${cid}?as=${encodeURIComponent(p.id)}`} target=${`joueur-${cid}-${p.id}`} rel="noopener" onClick=${() => setOpen(false)}>
+            <span>${p.name}</span><small class="muted">${p.chars.map(c => c.name).join(', ') || t('sans fiche')}</small>
+          </a>`)}
+      <p class="muted small">${t('Lecture seule, dans un autre onglet. Ta session reste la tienne.')}</p>
+    </div>` : null}
+  </span>`;
+}
+
 function Menu({ onClose }) {
   const theme = store.ui.theme;
   const cid = store.route.cid;
@@ -61,7 +92,7 @@ function Menu({ onClose }) {
     <div class="menu" onClick=${e => e.stopPropagation()}>
       ${isDm() ? html`<a class="menu-link" href=${`/c/${cid}/mj`} onClick=${e => { onClose(); linkClick(e); }}>${Icon.scroll()} ${t('Panneau MJ')}</a>
         <a class="menu-link" href=${`/c/${cid}/mj/journal`} onClick=${e => { onClose(); linkClick(e); }}>${Icon.list()} ${t('Journal des actions')}</a>` : null}
-      <a class="menu-link" href=${`/c/${cid}/monde`} target=${`monde-${cid}`} rel="noopener" onClick=${onClose}>${Icon.globe()} ${t('Carte du monde')}</a>
+      <a class="menu-link" href=${`/c/${cid}/monde${asQuery()}`} target=${`monde-${cid}`} rel="noopener" onClick=${onClose}>${Icon.globe()} ${t('Carte du monde')}</a>
       <button type="button" onClick=${() => { onClose(); openModal({ kind: 'compendium' }); }}>${Icon.book()} ${t('Compendium 5etools')}</button>
       ${store.view.charId ? html`<button type="button" onClick=${() => { onClose(); openModal({ kind: 'settings', id: store.view.charId }); }}>${Icon.gear()} ${t('Réglages de la fiche / JSON')}</button>` : null}
       ${!isDm() ? html`<button type="button" onClick=${() => { onClose(); openModal({ kind: 'newChar' }); }}>${Icon.plus()} ${t('Nouveau personnage')}</button>` : null}
@@ -97,6 +128,7 @@ function TopBar({ children }) {
         })}
       </div>
       <div class="tools">
+        ${isDm() ? html`<${ViewAsButton} cid=${cid} />` : null}
         ${isDm() ? html`<a class="map-btn" href=${`/c/${cid}/carte`} target=${`carte-${cid}`} rel="noopener" title=${t('Ouvre la carte et l\'initiative dans un nouvel onglet')}>${Icon.map()}<span>${t('Carte')}</span></a>` : null}
         <span class=${`conn ${store.conn}`} title=${store.conn === 'online' ? t('Connecté') : store.conn === 'connecting' ? t('Connexion…') : t('Hors ligne')}></span>
         <div class="seg" role="group" aria-label=${t('Mode de jet')}>
@@ -113,7 +145,7 @@ function TopBar({ children }) {
     </div>
     <div class="tb-row pages">
       ${pages.map(([k, label]) => html`<button type="button" key=${k} class=${`page-tab ${k === page ? 'on' : ''} ${k === 'secret' ? 'secret' : ''}`} onClick=${() => setView({ page: k })}>${k === 'secret' ? html`${Icon.lock()} ` : ''}${label()}</button>`)}
-      ${isDm() ? null : html`<a class="page-tab map-tab" href=${`/c/${cid}/carte/joueur`} target=${`joueur-${cid}`} rel="noopener" title=${t('Ouvre la carte de la table dans un nouvel onglet')}>${Icon.map()} ${t('Carte')} ↗</a>`}
+      ${isDm() ? null : html`<a class="page-tab map-tab" href=${`/c/${cid}/carte/joueur${asQuery()}`} target=${`joueur-${cid}${viewAs() ? `-${viewAs()}` : ''}`} rel="noopener" title=${t('Ouvre la carte de la table dans un nouvel onglet')}>${Icon.map()} ${t('Carte')} ↗</a>`}
     </div>
     ${children}
     ${menu ? html`<${Menu} onClose=${() => setMenu(false)} />` : null}
@@ -227,6 +259,8 @@ function Shell() {
   const owner = doc ? store.chars[charId]?.owner : null;
   return html`<div class=${`shell ${store.ui.logOpen ? 'log-open' : ''}`} data-theme-key=${theme}>
     <${TopBar}>
+      ${isPreview() ? html`<div class="banner preview">${Icon.eye()} <span>${t('Vue joueur : tu vois la campagne comme {name}. Rien de ce que tu fais ici n\'est enregistré.', { name: store.me.preview.name })}</span>
+        <a class="btn tiny" href=${`/c/${cid}`}>${t('Quitter la vue joueur')}</a></div>` : null}
       ${store.conn !== 'online' ? html`<div class="banner offline">${t('Hors ligne : reconnexion en cours… Les modifications seront envoyées au retour du réseau.')}</div>` : null}
       ${doc && layer && !ro ? html`<${PencilBar} id=${charId} doc=${doc} layer=${layer} />` : null}
     <//>

@@ -134,6 +134,17 @@ export function linkClick(e) {
 
 // ---------------------------------------------------------------- Accès
 
+// Vue joueur : /c/<id>?as=<compte> ouvre la campagne comme ce joueur la voit, en lecture seule.
+// Réservée au MJ ; le serveur envoie exactement ce que ce joueur recevrait.
+export const viewAs = () => (typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('as'));
+export const isPreview = () => !!store.me?.preview;
+let readOnlyShown = 0;
+function previewBlocked() {
+  if (!isPreview()) return false;
+  if (Date.now() - readOnlyShown > 3000) { readOnlyShown = Date.now(); toast(t('Vue joueur : lecture seule')); }
+  return true;
+}
+
 export const currentCampaign = () => (store.route.name === 'campaign' || store.route.name === 'dm' ? store.route.cid : null);
 export const isDm = () => store.me?.role === 'dm';
 export function myCharId() { return store.me?.charId || null; }
@@ -196,7 +207,7 @@ export function connect() {
   notify();
   const sock = new WebSocket(wsUrl());
   ws = sock;
-  sock.onopen = () => { retry = 0; sock.send(JSON.stringify({ t: 'hello', token: store.token, campaign: cid, play: LS.get(playKey(cid)), lang: getLang() })); };
+  sock.onopen = () => { retry = 0; sock.send(JSON.stringify({ t: 'hello', token: store.token, campaign: cid, play: viewAs() ? previewPlay : LS.get(playKey(cid)), lang: getLang(), as: viewAs() || undefined })); };
   sock.onmessage = ev => { if (ws === sock) onMessage(JSON.parse(ev.data)); };
   sock.onclose = () => {
     if (ws !== sock) return;
@@ -227,6 +238,7 @@ function rawSend(msg) {
 }
 
 function request(msg) {
+  if (previewBlocked()) return Promise.resolve({ ok: false, preview: true });
   msg.id = ++seq;
   return new Promise(resolve => {
     if (rawSend(msg)) waiting.set(msg.id, { resolve, msg });
@@ -343,9 +355,12 @@ function loadState(state) {
 function requestSync() { rawSend({ t: 'sync' }); }
 
 // Jouer une autre de ses fiches dans cette campagne.
+// Une vue joueur garde son choix pour elle : le stockage du navigateur est celui du MJ.
+let previewPlay = null;
 export function playChar(charId) {
   const cid = currentCampaign();
-  LS.set(playKey(cid), charId);
+  if (viewAs()) previewPlay = charId;
+  else LS.set(playKey(cid), charId);
   store.view.charId = charId;
   store.ready = false;
   connect();
@@ -358,6 +373,7 @@ export function setPath(docId, path, value) {
 }
 
 export function setOps(docId, ops) {
+  if (previewBlocked()) return Promise.resolve({ ok: false, preview: true });
   const msg = { t: 'set', doc: docId, ops };
   applyLocal(docId, ops);
   msg.id = ++seq;
@@ -393,6 +409,7 @@ export async function api(path, { method = 'GET', body, raw, headers = {} } = {}
     headers: {
       'X-Lang': getLang(),
       ...(store.token ? { Authorization: `Bearer ${store.token}` } : {}),
+      ...(viewAs() && path.startsWith('/api/c/') ? { 'X-View-As': viewAs() } : {}),
       ...(body ? { 'Content-Type': 'application/json' } : {}),
       ...headers,
     },

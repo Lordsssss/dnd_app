@@ -414,3 +414,4 @@ body.player-page { overscroll-behavior: none; }
   .pl-reacts { max-width: 100%; overflow-x: auto; }
   .pl-bar .sep { display: none; }
 }
+.pl-banner.preview { color: #a8d6ff; border: 1px solid rgba(90, 169, 255, .55); }

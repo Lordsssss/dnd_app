@@ -30,7 +30,6 @@ export function MemePanel({ onImage }) {
         <${Switch} on=${tb.blockTokens} label="Bloquer leurs tokens" hint="Ils ne déplacent plus rien, la vue reste libre" onChange=${v => setTable({ blockTokens: v })} />
         <div class="tb-row">
           <button type="button" class="btn small" onClick=${() => request({ t: 'summon' })}>Ramener leur vue sur la TV</button>
-          <a class="btn small ghost" href=${`/c/${campaignId}/carte/joueur`} target=${`joueur-${campaignId}`} rel="noopener">Voir comme un joueur ↗</a>
         </div>
       </section>
       <section>
@@ -51,6 +50,7 @@ export function MemePanel({ onImage }) {
         ${players === null ? html`<p class="muted">Chargement…</p>` : !players.length ? html`<p class="muted">Aucun joueur dans cette campagne.</p>` : html`<div class="tb-players">
           ${players.map(p => html`<div class="tb-player" key=${p.id}>
             <span class="tb-name">${p.name}${p.chars.length ? html` <small class="muted">${p.chars.map(c => c.name).join(', ')}</small>` : null}</span>
+            <a class="btn tiny ghost" href=${`/c/${campaignId}/carte/joueur?as=${encodeURIComponent(p.id)}`} target=${`joueur-${campaignId}-${p.id}`} rel="noopener" title="Son onglet Carte, tel qu'il le voit, en lecture seule">👁 Sa vue ↗</a>
             <${Switch} on=${!muted.has(p.id)} label="Memes" onChange=${v => setMuted(p.id, !v)} />
             <button type="button" class="btn tiny danger ghost" onClick=${() => { if (confirm(tx('Effacer tous les memes de ce joueur, sur toutes les cartes ?'))) request({ t: 'meme', action: 'wipe', account: p.id }); }}>Effacer ses memes</button>
           </div>`)}

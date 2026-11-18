@@ -23,6 +23,7 @@ A self-hosted table for D&D 5e campaigns: live character sheets, a DM map with f
 - **Images**: maps, tokens, portraits, uploaded by drag and drop into folders. The same images, with their folders, are in the map's **Images** window.
 - **Bestiary**: copy a 5etools creature and tweak it, or write a stat block in Markdown. Tokens show it on hover, on the DM's screen only. Never XP.
 - **Kits**: items and coins prepared before the session, applied to a sheet in one click at the table; the player's sheet changes live. A kit can also take items off the sheet, each one staying, put away or lost: what is put away lands in a new kit, to give back in one click. **Undo kit** puts the sheet back as it was.
+- **Player view**: the eye button in the sheets' top bar, or the eye next to a player in **Members**, opens the campaign in another tab exactly as that player sees it: their sheet, the others read-only, their secret page, their Map tab and the world map as they know it. The server sends what that player's account would get, and refuses every change, so the DM never switches accounts or borrows a password. The DM's own session is untouched.
 - **Settings**: name, edition, currency (coins, names and rates), Long Rest rule, **secret death saves** (the server rolls; only the DM sees the tally).
 - **API tokens**: give a tool or an AI assistant the DM's rights on this campaign and nothing else.
 - **Log** of everything that happened in the campaign.

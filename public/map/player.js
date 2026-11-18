@@ -2,13 +2,13 @@
 // et le calque de memes. Le MJ peut verrouiller la vue sur la TV, bloquer les tokens ou couper
 // les memes ; le serveur vérifie tout, cet écran ne fait que suivre.
 import '/app/store.js';
-import { tx } from '/shared/i18n.js';
+import { t, tx } from '/shared/i18n.js';
 import { applyUpdate } from '/shared/map/ops.js';
 import { indexFor } from '/shared/map/view.js';
 import { lineOfSight } from '/shared/map/vision.js';
 import { sceneBounds } from '/shared/map/scene.js';
 import { html, render, useEffect, useRef, useState } from '/app/html.js';
-import { campaignId, connectMap, getToken, goLogin } from './net.js';
+import { campaignId, connectMap, getToken, goLogin, viewAs } from './net.js';
 import { loadMap } from './images.js';
 import { boundsRect, drawScene, fitCamera, label, viewFor } from './render.js';
 import {
@@ -255,6 +255,14 @@ async function send(msg) {
   return r;
 }
 
+// Vue joueur du MJ : l'onglet tel que le joueur le voit, sans rien pouvoir y faire.
+let readOnlyShown = 0;
+function previewBlocked() {
+  if (!P.me?.preview) return false;
+  if (Date.now() - readOnlyShown > 2500) { readOnlyShown = Date.now(); toast('Vue joueur : lecture seule', 'info', 2500); }
+  return true;
+}
+
 // --------------------------------------------------------------- Memes
 
 function memeAt() {
@@ -264,6 +272,7 @@ function memeAt() {
 }
 
 async function takeImage(src, at = memeAt()) {
+  if (previewBlocked()) return;
   if (!P.canMeme) { toast('Le MJ a coupé tes memes', 'error'); return; }
   try {
     toast('Image en route…', 'info', 1500);
@@ -274,6 +283,7 @@ async function takeImage(src, at = memeAt()) {
 }
 
 function placeMeme({ kind, image, top, bottom, text, ttl, at, size }) {
+  if (previewBlocked()) return;
   const cam = camera();
   send({ t: 'meme', action: 'add', meme: {
     kind, image: image?.ref || image || '', name: image?.name || '', top, bottom, text, ttl,
@@ -282,7 +292,7 @@ function placeMeme({ kind, image, top, bottom, text, ttl, at, size }) {
 }
 
 function react(emoji, at) {
-  if (!P.canMeme) return;
+  if (!P.canMeme || previewBlocked()) return;
   const doc = shown();
   const t = doc && emoji !== 'ping' ? tokenAt(doc, at.x, at.y, false) : null;
   send({ t: 'react', emoji, x: at.x, y: at.y, token: t?.id || null });
@@ -297,6 +307,7 @@ function pinMeme(m) {
 }
 
 function pickFile(at) {
+  if (previewBlocked()) return;
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/png,image/jpeg,image/gif,image/webp';
@@ -372,6 +383,7 @@ function bindCanvas(el) {
     }
     if (P.armed) { react(P.armed, w); return; }
     const tok = !P.doc.frozen && !P.table.blockTokens ? tokenAt(doc, w.x, w.y) : null;
+    if (tok && previewBlocked()) return;
     if (tok) {
       P.drag = { id: tok.id, size: tok.size || 1, from: { x: tok.x, y: tok.y }, start: w, sx, sy, moved: false, to: { x: tok.x, y: tok.y }, feet: 0 };
     } else if (!locked()) {
@@ -448,7 +460,7 @@ function MapView() {
     canvas = ref.current;
     overlay = new MemeOverlay(layer.current, {
       interactive: true,
-      canEdit: m => P.canMeme && (m.by === P.me?.id || !!P.me?.dm),
+      canEdit: m => P.canMeme && !P.me?.preview && (m.by === P.me?.id || !!P.me?.dm),
       onUpdate: (id, patch) => send({ t: 'meme', action: 'update', memeId: id, patch }),
       onRemove: id => send({ t: 'meme', action: 'remove', ids: [id] }),
       onEdit: m => { P.dialog = { kind: 'maker', mk: m.kind, image: m.image ? { ref: m.image } : null, edit: m }; notify(); },
@@ -478,6 +490,7 @@ function MapView() {
 
 function Banners() {
   const out = [];
+  if (P.me?.preview) out.push(['preview', `👁 ${t('Vue joueur : {name}, en lecture seule', { name: P.me.name })}`]);
   if (P.table.lock) out.push(['lock', 'Le MJ a verrouillé la vue sur la TV']);
   if (P.doc?.frozen) out.push(['warn', 'Carte gelée : le MJ replace la scène']);
   else if (P.table.blockTokens) out.push(['warn', 'Le MJ a bloqué les tokens']);

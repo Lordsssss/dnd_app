@@ -140,6 +140,14 @@ export class Campaigns {
 
   members(cid) { return this.db.membersOf(cid); }
 
+  // Vue joueur : le MJ ou un co-MJ regarde la campagne avec le compte d'un de ses joueurs, en
+  // lecture seule. Rend ce compte, ou null si ce n'est pas un joueur de cette campagne.
+  previewTarget(realId, cid, targetId) {
+    if (!isDmRole(this.role(realId, cid))) return null;
+    if (!targetId || this.role(String(targetId), cid) !== 'player') return null;
+    return this.db.getAccount(String(targetId)) || null;
+  }
+
   campaignsOf(accountId) {
     return this.db.membershipsOf(accountId)
       .map(m => ({ ...m, campaign: this.get(m.campaign) }))

@@ -1620,4 +1620,20 @@ export default {
   'Trop de memes sur cette carte : le MJ doit faire un peu de ménage': 'Too many memes on this map: the DM needs to tidy up',
   'Texte vide': 'Empty text',
   'Image manquante': 'Missing image',
+
+  // ---------------------------------------------------------------- Vue joueur du MJ
+  'Voir la campagne comme ce joueur, en lecture seule': 'See the campaign as this player, read-only',
+  'Voir la campagne comme un joueur': 'See the campaign as a player',
+  'Voir comme…': 'See as…',
+  'sans fiche': 'no sheet',
+  'Lecture seule, dans un autre onglet. Ta session reste la tienne.': 'Read-only, in another tab. Your session stays yours.',
+  'Quitter la vue joueur': 'Leave player view',
+  'Vue joueur : lecture seule': 'Player view: read-only',
+  "Vue joueur : tu vois la campagne comme {name}. Rien de ce que tu fais ici n'est enregistré.": 'Player view: you see the campaign as {name}. Nothing you do here is saved.',
+  'Vue joueur : {name}, en lecture seule': 'Player view: {name}, read-only',
+  "Son onglet Carte, tel qu'il le voit, en lecture seule": 'Their Map tab, as they see it, read-only',
+  '👁 Sa vue ↗': '👁 Their view ↗',
+  'Ce que voit un joueur, en lecture seule': 'What a player sees, read-only',
+  '👁 Vue joueur': '👁 Player view',
+  'Vue joueur impossible : ce compte ne joue pas dans cette campagne': "Player view unavailable: this account doesn't play in this campaign",
 };

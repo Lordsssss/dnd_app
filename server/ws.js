@@ -6,6 +6,9 @@ import { ActionError, PARTY_ACTIONS } from '../shared/actions.js';
 import { tl, normLang } from '../shared/i18n.js';
 import { isDmRole } from './campaigns.js';
 
+// Ce qu'une vue joueur du MJ ne peut pas envoyer : elle regarde, elle n'écrit rien.
+const WRITES = new Set(['set', 'act', 'undo', 'roll']);
+
 export function createSheetHub({ engine, db, campaigns, audit, accountOfToken }) {
   const clients = new Set();
   const wss = new WebSocketServer({ noServer: true, maxPayload: 2_000_000 });
@@ -45,17 +48,26 @@ export function createSheetHub({ engine, db, campaigns, audit, accountOfToken })
     const membership = campaigns.role(acc.id, cid);
     if (!membership) return sendWs(c, { t: 'denied', reason: tl(lang, 'Tu ne fais pas partie de cette campagne') });
     db.touchSession(msg.token);
-    const role = isDmRole(membership) ? 'dm' : 'player';
-    const mine = engine.charsOwnedBy(acc.id, cid).map(x => x.id);
+    // Vue joueur : le MJ prend le point de vue d'un de ses joueurs, en lecture seule.
+    let who = acc;
+    let preview = null;
+    if (msg.as) {
+      const target = campaigns.previewTarget(acc.id, cid, msg.as);
+      if (!target) return sendWs(c, { t: 'denied', reason: tl(lang, 'Vue joueur impossible : ce compte ne joue pas dans cette campagne') });
+      who = target;
+      preview = { by: acc.name, name: target.name };
+    }
+    const role = !preview && isDmRole(membership) ? 'dm' : 'player';
+    const mine = engine.charsOwnedBy(who.id, cid).map(x => x.id);
     let charId = null;
     if (mine.includes(msg.play)) charId = msg.play;
     else if (role === 'player') charId = mine[0] || null;
     c.token = msg.token;
-    c.auth = { id: c.id, role, membership, charId, campaign: cid, accountId: acc.id, accountName: acc.name, lang };
+    c.auth = { id: c.id, role, membership: preview ? 'player' : membership, charId, campaign: cid, accountId: who.id, accountName: who.name, realAccountId: acc.id, preview, lang };
     const client = c.auth;
     return sendWs(c, {
       t: 'welcome',
-      me: { role, membership, charId, campaign: cid, accountId: acc.id, mine },
+      me: { role, membership: client.membership, charId, campaign: cid, accountId: who.id, mine, preview },
       state: engine.stateFor(client),
       rolls: db.recentRolls(cid, 100, { withPrivate: role === 'dm' }),
       stacks: engine.stacksFor(client),
@@ -77,6 +89,7 @@ export function createSheetHub({ engine, db, campaigns, audit, accountOfToken })
         if (msg.t === 'hello') return welcome(c, msg);
         if (!c.auth) return reply(false, { error: tl(lang, 'Non connecté') });
         const client = c.auth;
+        if (client.preview && WRITES.has(msg.t)) return reply(false, { error: tl(lang, 'Vue joueur : lecture seule') });
         switch (msg.t) {
           case 'ping': return sendWs(c, { t: 'pong' });
           case 'sync': return sendWs(c, { t: 'state', state: engine.stateFor(client) });
@@ -103,6 +116,9 @@ export function createSheetHub({ engine, db, campaigns, audit, accountOfToken })
   });
 
   const inCampaign = (c, cid) => c.auth && c.auth.campaign === cid;
+  // Une vue joueur répond au compte du MJ qui l'a ouverte comme au compte du joueur regardé.
+  const matches = (c, predicate) => [...new Set([c.auth.realAccountId, c.auth.accountId])]
+    .some(accountId => predicate({ accountId, campaign: c.auth.campaign, token: c.token }));
 
   engine.on('patch', ev => {
     for (const c of clients) {
@@ -151,22 +167,27 @@ export function createSheetHub({ engine, db, campaigns, audit, accountOfToken })
     // `predicate` reçoit { accountId, campaign, token } ; la connexion est fermée avec un motif.
     kick(predicate, reason) {
       for (const c of clients) {
-        if (!c.auth || !predicate({ accountId: c.auth.accountId, campaign: c.auth.campaign, token: c.token })) continue;
-        sendWs(c, { t: 'logout', reason: tl(c.auth.lang, reason), soft: true });
+        if (!c.auth) continue;
+        const own = predicate({ accountId: c.auth.realAccountId, campaign: c.auth.campaign, token: c.token });
+        const seen = !!c.auth.preview && predicate({ accountId: c.auth.accountId, campaign: c.auth.campaign, token: c.token });
+        if (!own && !seen) continue;
+        // Le joueur regardé change de mot de passe ou disparaît : la vue joueur se ferme, la
+        // session du MJ reste ouverte.
+        sendWs(c, own ? { t: 'logout', reason: tl(c.auth.lang, reason), soft: true } : { t: 'denied', reason: tl(c.auth.lang, reason) });
         c.ws.close();
       }
     },
     // Rôle changé dans une campagne : les onglets concernés se reconnectent avec leurs nouveaux droits.
     refresh(predicate) {
       for (const c of clients) {
-        if (!c.auth || !predicate({ accountId: c.auth.accountId, campaign: c.auth.campaign })) continue;
+        if (!c.auth || !matches(c, predicate)) continue;
         sendWs(c, { t: 'reconnect' });
         c.ws.close();
       }
     },
     online(cid) {
       const out = new Map();
-      for (const c of clients) if (c.auth?.campaign === cid) out.set(c.auth.accountId, seatName(c.auth));
+      for (const c of clients) if (c.auth?.campaign === cid && !c.auth.preview) out.set(c.auth.accountId, seatName(c.auth));
       return out;
     },
     close() {

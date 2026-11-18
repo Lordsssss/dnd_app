@@ -5,6 +5,8 @@ import { getLang } from '/shared/i18n.js';
 
 export const campaignId = (/^\/c\/([\w-]+)\//.exec(location.pathname) || [])[1] || '';
 export const mapApi = path => `/api/c/${campaignId}/map${path}`;
+// Vue joueur du MJ : ?as=<compte> dans l'adresse de l'onglet « Carte ».
+export const viewAs = new URLSearchParams(location.search).get('as') || null;
 
 export function getToken() {
   try { return JSON.parse(localStorage.getItem('token')); } catch { return null; }
@@ -22,6 +24,7 @@ export async function api(path, { method = 'GET', body, raw, headers = {} } = {}
     headers: {
       'X-Lang': getLang(),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(viewAs && path.startsWith('/api/c/') ? { 'X-View-As': viewAs } : {}),
       ...(body ? { 'Content-Type': 'application/json' } : {}),
       ...headers,
     },
@@ -45,7 +48,7 @@ export function connectMap(role, { on, onState }) {
     onState?.('connecting');
     const sock = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/map`);
     ws = sock;
-    sock.onopen = () => { retry = 0; sock.send(JSON.stringify({ t: 'hello', token: getToken(), campaign: campaignId, role })); };
+    sock.onopen = () => { retry = 0; sock.send(JSON.stringify({ t: 'hello', token: getToken(), campaign: campaignId, role, as: role === 'player' ? viewAs || undefined : undefined })); };
     sock.onmessage = ev => {
       const m = JSON.parse(ev.data);
       if (m.t === 'ack') {

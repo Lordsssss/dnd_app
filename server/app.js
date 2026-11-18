@@ -148,6 +148,15 @@ export function createApp({ engine, db, cfg, data5e }) {
       const acc = guard.user(ctx);
       const role = campaigns.role(acc.id, cid);
       if (!role) throw new HttpError(403, 'Tu ne fais pas partie de cette campagne');
+      // Vue joueur : le MJ voit ce que ce joueur verrait, sans rien pouvoir changer.
+      const as = ctx.req.headers['x-view-as'];
+      if (as) {
+        if (!isDmRole(role)) throw new HttpError(403, 'Réservé au MJ de la campagne');
+        const target = campaigns.previewTarget(acc.id, cid, String(as));
+        if (!target) throw new HttpError(403, 'Vue joueur impossible : ce compte ne joue pas dans cette campagne');
+        if (ctx.req.method !== 'GET' && ctx.req.method !== 'HEAD') throw new HttpError(403, 'Vue joueur : lecture seule');
+        return { id: target.id, name: target.name, role: 'player', account: target, preview: { by: acc.id } };
+      }
       return { id: acc.id, name: acc.name, role, account: acc };
     },
     dm(ctx, cid = ctx.params.cid) {

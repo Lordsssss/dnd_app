@@ -225,3 +225,16 @@ a.btn { text-decoration: none; }
   .kit-row.take { grid-template-columns: 32px 1fr; }
   .kit-row.take .sel { grid-column: 1 / -1; }
 }
+
+/* ------------------------------------------------------------ Vue joueur du MJ */
+.banner.preview { background: rgba(90, 169, 255, .2); color: var(--ink); border-bottom: 1px solid rgba(90, 169, 255, .45); }
+.banner.preview svg { width: 16px; height: 16px; flex: none; }
+.banner.preview .btn { margin-left: auto; }
+.viewas { position: relative; display: inline-flex; }
+.viewas-pop {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; width: 250px; display: grid; gap: 4px; padding: 10px;
+  background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); font-size: 13px;
+}
+.viewas-pop p { margin: 2px 0 0; }
+.viewas-item { display: grid; padding: 6px 8px; border-radius: 6px; color: var(--ink); text-decoration: none; }
+.viewas-item:hover { background: var(--paper-3); }

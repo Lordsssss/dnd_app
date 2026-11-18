@@ -467,8 +467,18 @@ export function createMapServer({ db, engine, campaigns, assets, library, cfg, a
           const wants = msg.role === 'tv' ? 'tv' : msg.role === 'player' ? 'player' : 'dm';
           if (wants === 'player' && !role) return send(c, { t: 'denied', reason: 'Tu ne fais pas partie de cette campagne' });
           if (wants !== 'player' && !isDmRole(role)) return send(c, { t: 'denied', reason: 'Réservé au MJ de la campagne' });
-          Object.assign(c, { authed: true, accountId: who.id, accountName: who.name, accountRole: role, isDm: isDmRole(role), campaign: cid, role: wants, token: msg.token });
-          send(c, { ...listMessage(cid), t: 'welcome', role: c.role, campaign: campaigns.publicInfo(cid), me: { id: who.id, name: who.name, dm: c.isDm } });
+          // Vue joueur : le MJ regarde l'onglet d'un de ses joueurs, sans rien pouvoir y faire.
+          let seen = who;
+          let preview = null;
+          if (wants === 'player' && msg.as) {
+            const target = campaigns.previewTarget(who.id, cid, msg.as);
+            if (!target) return send(c, { t: 'denied', reason: 'Vue joueur impossible : ce compte ne joue pas dans cette campagne' });
+            seen = target;
+            preview = { by: who.name, name: target.name };
+          }
+          const accountRole = preview ? 'player' : role;
+          Object.assign(c, { authed: true, accountId: seen.id, accountName: seen.name, realAccountId: who.id, accountRole, isDm: isDmRole(accountRole), preview, campaign: cid, role: wants, token: msg.token });
+          send(c, { ...listMessage(cid), t: 'welcome', role: c.role, campaign: campaigns.publicInfo(cid), me: { id: seen.id, name: seen.name, dm: c.isDm, preview } });
           send(c, tableMessage(c));
           const tv = campaigns.settings(cid).tvScene;
           if (c.role !== 'dm' && tv && storeOf(cid).has(tv)) openFor(c, tv);
@@ -478,6 +488,7 @@ export function createMapServer({ db, engine, campaigns, assets, library, cfg, a
         const cid = c.campaign;
         // Un joueur ne fait que trois choses : déplacer ses tokens, poser des memes, réagir.
         if (c.role === 'player') {
+          if (c.preview && ['op', 'meme', 'react'].includes(msg.t)) return reply(false, { error: 'Vue joueur : lecture seule' });
           if (msg.t === 'op') { playerMove(c, msg); return reply(true); }
           if (msg.t === 'meme') return reply(true, memeAction(c, msg));
           if (msg.t === 'react') { react(c, msg); return reply(true); }
@@ -546,7 +557,9 @@ export function createMapServer({ db, engine, campaigns, assets, library, cfg, a
     // Compte supprimé, secret changé, rôle retiré : sa carte et sa TV se ferment aussi.
     kick: (predicate, reason) => {
       for (const c of clients) {
-        if (!c.authed || !predicate({ accountId: c.accountId, campaign: c.campaign, token: c.token })) continue;
+        if (!c.authed) continue;
+        const ids = [...new Set([c.realAccountId, c.accountId])];
+        if (!ids.some(accountId => predicate({ accountId, campaign: c.campaign, token: c.token }))) continue;
         send(c, { t: 'denied', reason });
         c.ws.close();
       }

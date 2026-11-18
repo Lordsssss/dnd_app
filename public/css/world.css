@@ -121,3 +121,5 @@ body.world-page { margin: 0; overflow: hidden; background: var(--bg); color: var
 .w-up-opt { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
 .w-up-opt p { margin: 0; }
 .w-up-opt a { color: var(--blue); }
+/* Vue joueur du MJ : un repère dans la barre, pour ne pas la confondre avec sa propre vue. */
+.w-preview { padding: 3px 8px; border-radius: 4px; background: rgba(90, 169, 255, .2); color: var(--bar-ink); font-size: 12px; font-weight: 700; white-space: nowrap; }

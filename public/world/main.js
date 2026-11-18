@@ -10,12 +10,14 @@ const token = () => { try { return JSON.parse(localStorage.getItem('token')); } 
 // La campagne est dans l'adresse : /c/<id>/monde. Chaque campagne a son monde.
 const CID = (/^\/c\/([\w-]+)\//.exec(location.pathname) || [])[1] || '';
 const W = path => `/api/c/${CID}/monde${path}`;
+// Vue joueur du MJ : ?as=<compte> ; le serveur rend le monde tel que ce joueur le voit.
+const AS = new URLSearchParams(location.search).get('as') || null;
 const fileUrl = ref => `/api/file?ref=${encodeURIComponent(ref)}`;
 
 async function api(path, { method = 'GET', body, raw, headers = {} } = {}) {
   const res = await fetch(path, {
     method,
-    headers: { ...(token() ? { Authorization: `Bearer ${token()}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers },
+    headers: { ...(token() ? { Authorization: `Bearer ${token()}` } : {}), ...(AS ? { 'X-View-As': AS } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers },
     body: raw ?? (body ? JSON.stringify(body) : undefined),
   });
   const ct = res.headers.get('content-type') || '';
@@ -590,8 +592,9 @@ function TopBar() {
     } catch (x) { toast(x.message, 'error'); }
   };
   return html`<header class="w-top">
-    <a class="w-home" href=${`/c/${CID}`} title="Retour aux fiches">⚔</a>
+    <a class="w-home" href=${`/c/${CID}${AS ? `?as=${encodeURIComponent(AS)}` : ''}`} title="Retour aux fiches">⚔</a>
     <div class="w-title"><b>${d?.name || 'Carte du monde'}</b>${d?.year ? html`<small>An ${d.year}${d.era ? ` · ${d.era}` : ''}</small>` : null}</div>
+    ${AS ? html`<span class="w-preview" title="Ce que voit un joueur, en lecture seule">👁 Vue joueur</span>` : null}
     <${Search} />
     <div class="grow"></div>
     <div class="w-tools">

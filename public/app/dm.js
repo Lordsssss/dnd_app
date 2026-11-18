@@ -99,7 +99,10 @@ function Members({ cid, o, reload }) {
             </select>` : html`<span class=${`role-chip ${m.role}`}>${roleLabel(m.role)}</span>`}</td>
           <td>${m.chars.join(', ') || html`<span class="muted">—</span>`}</td>
           <td>${m.online ? html`<span class="dot-on"></span> ${m.online}` : html`<span class="muted">—</span>`}</td>
-          <td class="right">${m.role !== 'dm' && (owner || m.role === 'player') ? html`<button type="button" class="btn tiny danger ghost" onClick=${() => remove(m)}>${t('Retirer')}</button>` : null}</td>
+          <td class="right">
+            ${m.role === 'player' ? html`<a class="btn tiny ghost" href=${`/c/${cid}?as=${encodeURIComponent(m.accountId)}`} target=${`joueur-${cid}-${m.accountId}`} rel="noopener" title=${t('Voir la campagne comme ce joueur, en lecture seule')}>${Icon.eye()}</a>` : null}
+            ${m.role !== 'dm' && (owner || m.role === 'player') ? html`<button type="button" class="btn tiny danger ghost" onClick=${() => remove(m)}>${t('Retirer')}</button>` : null}
+          </td>
         </tr>`)}</tbody>
       </table>
       ${owner ? html`<p class="muted small">${t('Donner le rôle de MJ titulaire fait de toi un co-MJ. Un co-MJ voit et modifie tout, sauf les rôles et la suppression de la campagne.')}</p>` : null}
