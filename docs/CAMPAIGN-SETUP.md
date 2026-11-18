@@ -294,6 +294,7 @@ Open the map from the DM panel, or go to `/c/<campaign>/carte`. Everything here 
 ## 6. Bestiary and world map
 
 - **Bestiary** (DM panel): copy a 5etools creature and edit it, or write a stat block in Markdown. Encounter difficulty is written as a label: Easy, Medium, Hard or Deadly.
+- **Kits** (DM panel): what the characters receive or lose, prepared before the session. **Apply** changes the sheet live; the player can't undo it, the DM can (**Undo kit**). Items a kit takes away either stay, are put away (they go to a new kit, to give back later) or are lost.
 - **World map** (`/c/<campaign>/monde`): an Azgaar `.map` file or any image, with places, DM notes and a text for the players.
 
 ## 7. Letting an AI work on the campaign directly
@@ -312,6 +313,8 @@ The campaign id is in the address bar: `/c/<campaign>/…`. Every call sends `Au
 | `PUT /api/c/<campaign>/characters/<id>` (body: the sheet) | Replaces a sheet. Refused if the check finds errors. The DM can undo it. |
 | `POST /api/c/<campaign>/bestiary` (body: `{ "name", "body", "ac", "hp", "init", "size" }`) | Adds a creature; `body` is the stat block in Markdown. |
 | `POST /api/c/<campaign>/stash` (body: `{ "items": [{ "name", "qty" }] }`) | Adds items to the party stash. |
+| `POST /api/c/<campaign>/kits` (body: `{ "name", "folder", "target", "give": { "items", "currency" }, "take": { "rest", "money", "items": [{ "id", "name", "fate" }] }, "keepName" }`) | Prepares a kit. `fate`, `rest` and `money` are `stay`, `keep` or `lose`. |
+| `POST /api/c/<campaign>/kits/<id>/apply` (body: `{ "charId" }`) | Applies a kit to a sheet; `kits/<id>/undo` puts the sheet back. |
 
 ```bash
 curl -s -H "Authorization: Bearer dt_…" -H "Content-Type: application/json" \

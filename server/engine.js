@@ -12,6 +12,7 @@ import { CHAR_ACTIONS, PARTY_ACTIONS, ActionError, inLang } from '../shared/acti
 import { EDITABLE_KEYS, blankParty, normalizeCharacter, normalizeParty } from '../shared/model.js';
 import { attunedCount, infusionLimits, MAX_ATTUNED, DEFAULT_CURRENCY } from '../shared/rules.js';
 import { tl } from '../shared/i18n.js';
+import { applyKitToDoc } from '../shared/kits.js';
 
 export function partyIdFor(campaign) {
   return `party:${campaign}`;
@@ -443,6 +444,33 @@ export class Engine extends EventEmitter {
     const e = this.docs.get(id);
     if (!e || e.kind !== 'char') throw new ActionError('Fiche introuvable');
     return this.runCharAction(e, 'importSheet', { data });
+  }
+
+  // Lot préparé du MJ appliqué à une fiche. Pas d'entrée dans l'annulation de la fiche : un joueur
+  // ne doit pas pouvoir « annuler » ce que le MJ lui a retiré. Le panneau du MJ garde l'état d'avant.
+  applyKit(charId, campaign, kit) {
+    const e = this.docs.get(charId);
+    if (!e || e.kind !== 'char' || e.campaign !== campaign) throw new ActionError('Fiche introuvable');
+    const before = { inventory: clone(e.data.inventory || {}), currency: clone(e.data.currency || {}) };
+    const draft = clone(e.data);
+    const report = applyKitToDoc(draft, kit, { newId });
+    const patches = diff(e.data, draft);
+    e.data = draft;
+    if (patches.fwd.length) this.commit(e, patches, { kind: 'action' });
+    return { ...report, before, name: e.data.name || '?' };
+  }
+
+  // Remet l'inventaire et la bourse d'une fiche tels qu'ils étaient avant un lot.
+  restoreItems(charId, campaign, before) {
+    const e = this.docs.get(charId);
+    if (!e || e.kind !== 'char' || e.campaign !== campaign) throw new ActionError('Fiche introuvable');
+    const draft = clone(e.data);
+    draft.inventory = clone(before.inventory || {});
+    draft.currency = clone(before.currency || {});
+    const patches = diff(e.data, draft);
+    e.data = draft;
+    if (patches.fwd.length) this.commit(e, patches, { kind: 'action' });
+    return e.data.name || '?';
   }
 
   // Ajout direct à la réserve (MJ ou API), noté dans le journal du groupe.

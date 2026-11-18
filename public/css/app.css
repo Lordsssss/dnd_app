@@ -190,3 +190,38 @@ a.btn { text-decoration: none; }
 .rolls li.private { border-left: 3px solid var(--gold); padding-left: 8px; }
 .guard-inline { position: fixed; inset: auto 16px 16px auto; z-index: 90; max-width: 420px; padding: 14px 16px; border-radius: 12px; background: var(--paper-2); border: 1px solid var(--danger); box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 6px; }
 .guard-inline p { margin: 0; }
+
+/* Lots préparés du MJ */
+.kit-list { display: flex; flex-direction: column; gap: 10px; }
+.kit { display: flex; gap: 14px; justify-content: space-between; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--paper); }
+.kit-main { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
+.kit-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: 16px; }
+.kit-title .chip { margin: 0; }
+.kit-line { font-size: 14px; line-height: 1.45; }
+.kit-tag { display: inline-block; min-width: 54px; margin-right: 4px; padding: 1px 7px; border-radius: 6px; font: 800 11px var(--f-lab); text-transform: uppercase; letter-spacing: .05em; text-align: center; }
+.kit-tag.take { background: rgba(255, 90, 79, .16); color: var(--danger); }
+.kit-tag.give { background: rgba(69, 192, 107, .16); color: var(--good); }
+.kit-act { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex: none; }
+.kit-who { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; max-width: 320px; }
+.kit-h { margin: 8px 0 0; font: 800 12px var(--f-lab); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); }
+.kit-rows { display: flex; flex-direction: column; gap: 6px; }
+.kit-row { display: grid; grid-template-columns: 56px minmax(140px, 1.2fr) minmax(140px, 1.6fr) auto auto; gap: 8px; align-items: center; }
+.kit-row.take { grid-template-columns: 40px minmax(0, 1fr) 210px auto; padding: 4px 8px; border-radius: 8px; border-left: 3px solid transparent; }
+.kit-row.take.keep { border-left-color: var(--warn); background: rgba(242, 163, 58, .07); }
+.kit-row.take.lose { border-left-color: var(--danger); background: rgba(255, 90, 79, .07); }
+.kit-row .kit-qty { text-align: center; }
+.card .kit-row .txt { min-height: 34px; padding: 5px 8px; font-size: 14px; }
+.kit-flags { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.kit-flag { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+.kit-flag input { accent-color: var(--accent); }
+.kit-coins .txt.small-num { width: 90px; }
+.kit-rep { margin: 0 0 10px; }
+@media (max-width: 760px) {
+  .kit { flex-direction: column; }
+  .kit-act { align-items: stretch; width: 100%; }
+  .kit-who { justify-content: flex-start; max-width: none; }
+  .kit-row { grid-template-columns: 56px 1fr; }
+  .kit-row .kit-notes, .kit-row .kit-flags { grid-column: 1 / -1; }
+  .kit-row.take { grid-template-columns: 32px 1fr; }
+  .kit-row.take .sel { grid-column: 1 / -1; }
+}

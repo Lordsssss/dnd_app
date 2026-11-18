@@ -20,6 +20,7 @@ A self-hosted table for D&D 5e campaigns: live character sheets, a DM map with f
 - **Sheets**: create for a player or as an NPC, assign, import or export JSON, delete. The DM can edit every sheet of the campaign. **Copy JSON template** and **Copy AI instructions** give a ready example to fill by hand or with an AI; every import is checked before anything changes.
 - **Images**: maps, tokens, portraits, uploaded by drag and drop into folders. The same images, with their folders, are in the map's **Images** window.
 - **Bestiary**: copy a 5etools creature and tweak it, or write a stat block in Markdown. Tokens show it on hover, on the DM's screen only. Never XP.
+- **Kits**: items and coins prepared before the session, applied to a sheet in one click at the table; the player's sheet changes live. A kit can also take items off the sheet, each one staying, put away or lost: what is put away lands in a new kit, to give back in one click. **Undo kit** puts the sheet back as it was.
 - **Settings**: name, edition, currency (coins, names and rates), Long Rest rule, **secret death saves** (the server rolls; only the DM sees the tally).
 - **API tokens**: give a tool or an AI assistant the DM's rights on this campaign and nothing else.
 - **Log** of everything that happened in the campaign.
@@ -104,7 +105,7 @@ A campaign's lead DM creates tokens in the DM panel → API. A token acts as the
 curl -H "Authorization: Bearer $TOKEN" https://dnd.example.org/api/c/$CAMPAIGN/characters
 ```
 
-Useful routes: `characters` (GET, and `characters/<id>` GET or PUT a whole sheet), `assets?kind=map&name=…` (POST an image as the request body), `map/scenes` (POST to create, `map/scenes/<id>` GET or PUT the scene with its walls), `bestiary` (GET, POST, PUT, DELETE), `monde/…` for the world map.
+Useful routes: `characters` (GET, and `characters/<id>` GET or PUT a whole sheet), `assets?kind=map&name=…` (POST an image as the request body), `map/scenes` (POST to create, `map/scenes/<id>` GET or PUT the scene with its walls), `bestiary` (GET, POST, PUT, DELETE), `kits` (GET, POST, PUT, DELETE, `kits/<id>/apply` and `kits/<id>/undo`), `monde/…` for the world map.
 
 ## Command line
 

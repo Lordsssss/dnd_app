@@ -10,6 +10,7 @@ import { SheetTemplateButtons, importSheetFile } from './sheet-json.js';
 import { renderNote } from '/shared/map/markdown.js';
 import { BEAST_TEMPLATE } from '/shared/bestiary.js';
 import { t, tn, locale } from '/shared/i18n.js';
+import { Kits, KitReport } from './dm-kits.js';
 
 const fmtDate = ts => (ts ? new Date(ts).toLocaleString(locale(), { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 const fmtBytes = n => (n > 1e6 ? `${(n / 1e6).toFixed(1)} Mo` : `${Math.max(1, Math.round(n / 1e3))} ko`);
@@ -31,6 +32,7 @@ const TABS = [
   ['sheets', () => t('Fiches'), Icon.list],
   ['images', () => t('Images'), Icon.image],
   ['bestiary', () => t('Bestiaire'), Icon.book],
+  ['kits', () => t('Lots'), Icon.gift],
   ['settings', () => t('Réglages'), Icon.gear],
   ['vault', () => t('Coffre'), Icon.vault],
   ['api', () => t('API'), Icon.key],
@@ -60,6 +62,7 @@ export function DmPage({ cid, tab }) {
           ${tab === 'sheets' ? html`<${Sheets} cid=${cid} o=${o} reload=${reload} />` : null}
           ${tab === 'images' ? html`<${Images} cid=${cid} o=${o} />` : null}
           ${tab === 'bestiary' ? html`<${Bestiary} cid=${cid} o=${o} />` : null}
+          ${tab === 'kits' ? html`<${Kits} cid=${cid} o=${o} />` : null}
           ${tab === 'settings' ? html`<${Settings} cid=${cid} o=${o} reload=${reload} />` : null}
           ${tab === 'vault' && o.bridge ? html`<${Vault} cid=${cid} o=${o} reload=${reload} />` : null}
           ${tab === 'api' ? html`<${ApiTokens} cid=${cid} o=${o} reload=${reload} />` : null}
@@ -508,5 +511,6 @@ export function AuditLog({ url }) {
 export function DmModals() {
   const m = store.ui.modal;
   if (m?.kind === 'qr') return html`<${QrModal} url=${m.url} />`;
+  if (m?.kind === 'kitReport') return html`<${KitReport} ...${m} />`;
   return null;
 }

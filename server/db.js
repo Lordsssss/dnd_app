@@ -124,6 +124,12 @@ export class Db {
         ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`),
       delBeast: p('DELETE FROM bestiary WHERE id = ? AND campaign_id = ?'),
 
+      kitsOf: p('SELECT id, data, updated_at FROM kits WHERE campaign_id = ?'),
+      getKit: p('SELECT id, campaign_id, data FROM kits WHERE id = ?'),
+      putKit: p(`INSERT INTO kits (id, campaign_id, data, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`),
+      delKit: p('DELETE FROM kits WHERE id = ? AND campaign_id = ?'),
+
       getWorld: p('SELECT * FROM worlds WHERE campaign_id = ?'),
       putWorld: p(`INSERT INTO worlds (campaign_id, overlay, map_file, image, updated_at) VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(campaign_id) DO UPDATE SET overlay = excluded.overlay, map_file = excluded.map_file, image = excluded.image, updated_at = excluded.updated_at`),
@@ -198,7 +204,7 @@ export class Db {
   }
   deleteCampaign(id) {
     this.tx(() => {
-      for (const t of ['memberships', 'invitations', 'api_tokens', 'scenes', 'bestiary', 'worlds', 'damage_log']) this.db.prepare(`DELETE FROM ${t} WHERE campaign_id = ?`).run(id);
+      for (const t of ['memberships', 'invitations', 'api_tokens', 'scenes', 'bestiary', 'worlds', 'damage_log', 'kits']) this.db.prepare(`DELETE FROM ${t} WHERE campaign_id = ?`).run(id);
       this.db.prepare('DELETE FROM docs WHERE campaign = ?').run(id);
       this.db.prepare('DELETE FROM rolls WHERE campaign = ?').run(id);
       this.q.delCampaign.run(id);
@@ -249,6 +255,12 @@ export class Db {
   getBeast(id) { const r = this.q.getBeast.get(id); return r ? { id: r.id, campaign: r.campaign_id, ...json(r.data, {}) } : null; }
   putBeast(cid, id, data) { this.q.putBeast.run(id, cid, JSON.stringify(data), Date.now()); }
   deleteBeast(cid, id) { this.q.delBeast.run(id, cid); }
+
+  // ---------------------------------------------------------------- Lots préparés
+  kitsOf(cid) { return this.q.kitsOf.all(cid).map(r => ({ id: r.id, ...json(r.data, {}), updatedAt: r.updated_at })); }
+  getKit(id) { const r = this.q.getKit.get(id); return r ? { id: r.id, campaign: r.campaign_id, ...json(r.data, {}) } : null; }
+  putKit(cid, id, data) { this.q.putKit.run(id, cid, JSON.stringify(data), Date.now()); }
+  deleteKit(cid, id) { this.q.delKit.run(id, cid); }
 
   // ---------------------------------------------------------------- Monde
   getWorld(cid) {

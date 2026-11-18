@@ -22,6 +22,7 @@ import { createSheetHub } from './ws.js';
 import { registerAuth } from './routes/auth.js';
 import { registerCampaigns } from './routes/campaigns.js';
 import { registerContent } from './routes/content.js';
+import { registerKits } from './routes/kits.js';
 import { registerAdmin } from './routes/admin.js';
 import { register5e } from './routes/data5e.js';
 
@@ -196,6 +197,7 @@ export function createApp({ engine, db, cfg, data5e }) {
   registerAuth(shared);
   registerCampaigns(shared);
   registerContent(shared);
+  registerKits(shared);
   registerAdmin(shared);
   register5e(shared);
 

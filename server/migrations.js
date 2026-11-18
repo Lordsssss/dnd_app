@@ -241,6 +241,18 @@ export const MIGRATIONS = [
       `);
     },
   },
+  {
+    id: 6,
+    name: 'Lots préparés du MJ : objets à donner et à retirer des fiches en un clic',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS kits (
+          id TEXT PRIMARY KEY, campaign_id TEXT NOT NULL, data TEXT NOT NULL, updated_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS kits_campaign ON kits (campaign_id);
+      `);
+    },
+  },
 ];
 
 export function pendingMigrations(db) {
