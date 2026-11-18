@@ -1,6 +1,7 @@
 // L'onglet « Carte » d'un joueur : la carte de la TV sous son brouillard, ses tokens à déplacer,
-// et le calque de memes. Le MJ peut verrouiller la vue sur la TV, bloquer les tokens ou couper
-// les memes ; le serveur vérifie tout, cet écran ne fait que suivre.
+// et le calque où chacun colle des images et dessine. Le MJ peut verrouiller la vue sur la TV,
+// bloquer les tokens ou couper les images et les dessins ; le serveur vérifie tout, cet écran
+// ne fait que suivre.
 import '/app/store.js';
 import { t, tx } from '/shared/i18n.js';
 import { applyUpdate } from '/shared/map/ops.js';
@@ -10,18 +11,18 @@ import { sceneBounds } from '/shared/map/scene.js';
 import { html, render, useEffect, useRef, useState } from '/app/html.js';
 import { campaignId, connectMap, getToken, goLogin, viewAs } from './net.js';
 import { loadMap } from './images.js';
-import { boundsRect, drawScene, fitCamera, label, viewFor } from './render.js';
-import {
-  MemeMaker, MemeOverlay, REACTIONS, ShelfDialog, defaultSize, fetchMeme, pickTransfer, uploadMeme,
-} from './memes.js';
+import { boundsRect, drawScene, fitCamera, label } from './render.js';
+import { OverlayLayer, PEN_COLORS, PEN_WIDTHS, defaultImageSize, fetchPaste, pickTransfer, uploadPaste } from './overlay.js';
+
+const savedPen = (() => { try { return JSON.parse(localStorage.getItem('mapPen')) || {}; } catch { return {}; } })();
 
 const P = {
   conn: 'connecting',
   denied: null,
   me: null,
   campaign: null,
-  table: { lock: false, blockTokens: false, memes: true, memesOnTv: true, serious: false },
-  canMeme: false,
+  table: { lock: false, blockTokens: false, draw: true, onTv: true },
+  canDraw: false,
   sceneId: null,
   doc: null,
   frozenDoc: null,
@@ -31,14 +32,13 @@ const P = {
   size: { w: 800, h: 600 },
   cam: { x: 0, y: 0, z: 20 },
   framed: false,
+  tool: 'move',        // 'move' : vue, tokens et images ; 'pen' : dessiner ; 'erase' : effacer
+  pen: { color: PEN_COLORS.includes(savedPen.color) ? savedPen.color : PEN_COLORS[0], width: PEN_WIDTHS.includes(savedPen.width) ? savedPen.width : PEN_WIDTHS[1] },
+  draft: null,         // trait en cours : { points, color, width }
   drag: null,          // token en cours de déplacement
   settling: null,      // positions gardées jusqu'à la réponse du serveur
-  dialog: null,
-  menu: null,          // menu des memes ouvert par un appui long : { sx, sy, w }
-  armed: null,         // réaction prête à poser au prochain clic
-  pin: null,           // meme en attente d'un token où se coller
   pointer: null,       // dernière position de la souris, en cases
-  selMeme: null,
+  selItem: null,
   toasts: [],
 };
 
@@ -58,10 +58,10 @@ const refresh = () => { notify(); requestDraw(); };
 
 let toastSeq = 0;
 function toast(text, kind = 'info', ms = 3500) {
-  const t = { id: ++toastSeq, text: tx(text), kind };
-  P.toasts = [...P.toasts.slice(-2), t];
+  const it = { id: ++toastSeq, text: tx(text), kind };
+  P.toasts = [...P.toasts.slice(-2), it];
   notify();
-  setTimeout(() => { P.toasts = P.toasts.filter(x => x.id !== t.id); notify(); }, ms);
+  setTimeout(() => { P.toasts = P.toasts.filter(x => x.id !== it.id); notify(); }, ms);
 }
 
 // --------------------------------------------------------------- Caméra
@@ -89,8 +89,8 @@ function snapToken(x, y, size = 1) {
   return { x: Math.floor(x) + 0.5, y: Math.floor(y) + 0.5 };
 }
 
-function ownRing(ctx, t, z, pos) {
-  const r = ((t.size || 1) / 2) * 1.02;
+function ownRing(ctx, tk, z, pos) {
+  const r = ((tk.size || 1) / 2) * 1.02;
   ctx.save();
   ctx.strokeStyle = 'rgba(79,195,255,.9)';
   ctx.lineWidth = 2 / z;
@@ -104,24 +104,12 @@ function ownRing(ctx, t, z, pos) {
 function overlays(ctx, z) {
   const doc = shown();
   const d = P.drag;
-  for (const t of doc.tokens) {
-    if (!t.own) continue;
-    const pos = d?.moved && d.id === t.id ? d.to : P.settling?.get(t.id) || t;
-    ownRing(ctx, t, z, pos);
+  for (const tk of doc.tokens) {
+    if (!tk.own) continue;
+    const pos = d?.moved && d.id === tk.id ? d.to : P.settling?.get(tk.id) || tk;
+    ownRing(ctx, tk, z, pos);
   }
-  if (P.pin) {
-    for (const t of doc.tokens) {
-      const r = ((t.size || 1) / 2) * 1.08;
-      ctx.save();
-      ctx.strokeStyle = '#ffe066';
-      ctx.lineWidth = 2.5 / z;
-      ctx.beginPath();
-      ctx.arc(t.x, t.y, r, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
-    }
-  }
-  if (d?.moved) {
+  if (d?.moved && !d.pan) {
     ctx.save();
     ctx.strokeStyle = d.blocked ? '#ff5a4f' : '#ffe066';
     ctx.lineWidth = 3 / z;
@@ -149,14 +137,14 @@ function draw() {
   const dpr = window.devicePixelRatio || 1;
   const cam = camera();
   const positions = new Map(P.settling || []);
-  if (P.drag?.moved) positions.set(P.drag.id, P.drag.to);
+  if (P.drag?.moved && !P.drag.pan) positions.set(P.drag.id, P.drag.to);
   const rev = doc === P.doc ? P.rev : -1;
   drawScene(ctx, doc, cam, {
     role: 'tv', dpr, rev, mapImage: P.mapImage, live: P.live || {},
     fog: { alpha: 1, soft: Math.min(4, cam.z * dpr * 0.03) },
     dragging: positions.size ? positions : null, onImage: requestDraw, afterFog: overlays,
   });
-  overlay?.render({ doc, cam, seen: viewFor(doc, rev).seen, hidden: P.table.serious, positions });
+  overlay?.render({ doc, cam, draft: P.draft });
 }
 
 // --------------------------------------------------------------- Connexion
@@ -191,8 +179,8 @@ function onMessage(m) {
       const before = camera();
       const wasLocked = P.table.lock;
       P.table = m.table;
-      P.canMeme = !!m.canMeme;
-      if (!P.canMeme) { P.armed = null; P.menu = null; }
+      P.canDraw = !!m.canDraw;
+      if (!P.canDraw) { P.tool = 'move'; P.draft = null; }
       if (wasLocked && !P.table.lock) P.cam = before;
       if (P.table.lock && P.drag?.pan) P.drag = null;
       refresh();
@@ -210,7 +198,7 @@ function onMessage(m) {
       P.frozenDoc = m.doc.frozen ? structuredClone(m.doc) : null;
       P.drag = null;
       P.settling = null;
-      P.pin = null;
+      P.draft = null;
       if (changed || !P.framed) { P.framed = true; frameTv(); }
       useMap(P.doc.image);
       refresh();
@@ -230,10 +218,9 @@ function onMessage(m) {
     case 'live':
       if (m.scene === P.sceneId) { P.live = { ...(P.live || {}), ...m.live }; requestDraw(); }
       break;
-    case 'memes': if (m.scene === P.sceneId) { overlay?.setAll(m.memes); requestDraw(); } break;
-    case 'memeSet': if (m.scene === P.sceneId) overlay?.set(m.meme); break;
-    case 'memeGone': if (m.scene === P.sceneId) overlay?.remove(m.ids); break;
-    case 'react': if (m.scene === P.sceneId) overlay?.react(m.r); break;
+    case 'overlay': if (m.scene === P.sceneId) { overlay?.setAll(m.items); refresh(); } break;
+    case 'itemSet': if (m.scene === P.sceneId) { overlay?.set(m.item); notify(); } break;
+    case 'itemGone': if (m.scene === P.sceneId) { overlay?.remove(m.ids); notify(); } break;
     default: break;
   }
 }
@@ -263,66 +250,75 @@ function previewBlocked() {
   return true;
 }
 
-// --------------------------------------------------------------- Memes
+// --------------------------------------------------------------- Images et traits
 
-function memeAt() {
-  if (P.pointer) return P.pointer;
+const mine = it => it.by === P.me?.id;
+
+function viewCenter() {
   const c = camera();
   return { x: c.x + P.size.w / (2 * c.z), y: c.y + P.size.h / (2 * c.z) };
 }
 
-async function takeImage(src, at = memeAt()) {
+// Une image collée, glissée ou choisie : envoyée, puis posée là où pointe la souris.
+async function pasteImage(src, at = P.pointer || viewCenter()) {
   if (previewBlocked()) return;
-  if (!P.canMeme) { toast('Le MJ a coupé tes memes', 'error'); return; }
+  if (!P.canDraw) { toast('Le MJ a coupé tes images et tes dessins', 'error'); return; }
   try {
     toast('Image en route…', 'info', 1500);
-    const image = src.file ? await uploadMeme(src.file) : await fetchMeme(src.url);
-    P.dialog = { kind: 'maker', mk: 'image', image, at };
-    notify();
+    const image = src.file ? await uploadPaste(src.file) : await fetchPaste(src.url);
+    send({ t: 'draw', action: 'add', item: { kind: 'image', image: image.ref, x: at.x, y: at.y, size: defaultImageSize(camera(), P.size) } });
   } catch (e) { toast(e.message, 'error', 5000); }
 }
 
-function placeMeme({ kind, image, top, bottom, text, ttl, at, size }) {
-  if (previewBlocked()) return;
-  const cam = camera();
-  send({ t: 'meme', action: 'add', meme: {
-    kind, image: image?.ref || image || '', name: image?.name || '', top, bottom, text, ttl,
-    x: at.x, y: at.y, size: size || defaultSize(kind, cam, P.size),
-  } });
-}
-
-function react(emoji, at) {
-  if (!P.canMeme || previewBlocked()) return;
-  const doc = shown();
-  const t = doc && emoji !== 'ping' ? tokenAt(doc, at.x, at.y, false) : null;
-  send({ t: 'react', emoji, x: at.x, y: at.y, token: t?.id || null });
-}
-
-function pinMeme(m) {
-  const at = overlay.where(m);
-  if (!at) return;
-  if (m.attach) { send({ t: 'meme', action: 'update', memeId: m.id, patch: { attach: null, x: at.x, y: at.y } }); return; }
-  P.pin = { id: m.id, at };
-  refresh();
-}
-
-function pickFile(at) {
+function pickFile() {
   if (previewBlocked()) return;
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/png,image/jpeg,image/gif,image/webp';
-  input.onchange = () => { if (input.files[0]) takeImage({ file: input.files[0] }, at); };
+  input.onchange = () => { if (input.files[0]) pasteImage({ file: input.files[0] }, viewCenter()); };
   input.click();
+}
+
+function setTool(tool) {
+  if (tool !== 'move' && previewBlocked()) return;
+  P.tool = tool;
+  P.draft = null;
+  overlay?.select(null);
+  refresh();
+}
+
+function setPen(patch) {
+  P.pen = { ...P.pen, ...patch };
+  try { localStorage.setItem('mapPen', JSON.stringify(P.pen)); } catch { /* stockage indisponible */ }
+  if (P.tool !== 'pen') P.tool = 'pen';
+  refresh();
+}
+
+function clearMine() {
+  if (previewBlocked()) return;
+  const n = overlay?.countBy(P.me?.id) || 0;
+  if (!n) { toast('Rien à effacer : tu n\'as rien posé sur cette carte', 'info', 2500); return; }
+  if (!confirm(tx('Effacer tout ce que tu as collé et dessiné sur cette carte ?'))) return;
+  send({ t: 'draw', action: 'clearMine' });
+}
+
+// La gomme : un trait à soi sous le doigt s'efface. Une image s'efface en la touchant.
+const erasing = new Set();
+function eraseAt(w) {
+  const it = overlay?.strokeAt(w.x, w.y, camera().z, x => mine(x) && !erasing.has(x.id));
+  if (!it) return;
+  erasing.add(it.id);
+  send({ t: 'draw', action: 'remove', ids: [it.id] }).finally(() => erasing.delete(it.id));
 }
 
 // --------------------------------------------------------------- Souris et doigts
 
-function tokenAt(doc, x, y, ownOnly = true) {
+function tokenAt(doc, x, y) {
   for (let i = doc.tokens.length - 1; i >= 0; i--) {
-    const t = doc.tokens[i];
-    if (ownOnly && !t.own) continue;
-    const r = (t.size || 1) / 2;
-    if (Math.abs(x - t.x) <= r && Math.abs(y - t.y) <= r) return t;
+    const tk = doc.tokens[i];
+    if (!tk.own) continue;
+    const r = (tk.size || 1) / 2;
+    if (Math.abs(x - tk.x) <= r && Math.abs(y - tk.y) <= r) return tk;
   }
   return null;
 }
@@ -344,44 +340,33 @@ function dragTarget(d, w, free) {
 function bindCanvas(el) {
   const pointers = new Map();
   let pinch = null;
-  let press = null;
 
   const pos = e => { const r = el.getBoundingClientRect(); return { sx: e.clientX - r.left, sy: e.clientY - r.top }; };
-  const openMenu = (sx, sy) => {
-    if (!P.canMeme) return;
-    P.menu = { sx, sy, w: toWorld(sx, sy) };
-    P.drag = null;
-    notify();
-  };
 
   el.addEventListener('pointerdown', e => {
     el.setPointerCapture(e.pointerId);
     const { sx, sy } = pos(e);
     pointers.set(e.pointerId, { sx, sy });
     overlay?.select(null);
-    if (P.menu) { P.menu = null; notify(); }
+    // Deux doigts : on zoome, même au milieu d'un trait.
     if (pointers.size === 2 && !locked()) {
       const [a, b] = [...pointers.values()];
       P.drag = null;
-      clearTimeout(press?.timer);
-      press = null;
+      P.draft = null;
       pinch = { d: Math.hypot(a.sx - b.sx, a.sy - b.sy), mid: { sx: (a.sx + b.sx) / 2, sy: (a.sy + b.sy) / 2 }, cam: { ...P.cam } };
+      requestDraw();
       return;
     }
     if (e.button === 2) return;
     const w = toWorld(sx, sy);
     const doc = shown();
     if (!doc) return;
-    if (P.pin) {
-      const t = tokenAt(doc, w.x, w.y, false);
-      const pin = P.pin;
-      P.pin = null;
-      if (t) send({ t: 'meme', action: 'update', memeId: pin.id, patch: { attach: t.id, x: pin.at.x - t.x, y: pin.at.y - t.y } });
-      else toast('Pas de token ici', 'info', 1500);
-      refresh();
+    if (P.tool === 'pen' && P.canDraw) {
+      P.draft = { points: [[w.x, w.y]], color: P.pen.color, width: P.pen.width, sx, sy };
+      requestDraw();
       return;
     }
-    if (P.armed) { react(P.armed, w); return; }
+    if (P.tool === 'erase' && P.canDraw) { P.drag = { erase: true }; eraseAt(w); return; }
     const tok = !P.doc.frozen && !P.table.blockTokens ? tokenAt(doc, w.x, w.y) : null;
     if (tok && previewBlocked()) return;
     if (tok) {
@@ -389,8 +374,6 @@ function bindCanvas(el) {
     } else if (!locked()) {
       P.drag = { pan: true, sx, sy, cam: { ...P.cam } };
     }
-    // Appui long du doigt : le menu des memes, à cet endroit. À la souris : le clic droit.
-    if (e.pointerType !== 'mouse') press = { sx, sy, timer: setTimeout(() => { if (!P.drag?.moved) openMenu(sx, sy); press = null; }, 520) };
   });
 
   el.addEventListener('pointermove', e => {
@@ -410,9 +393,18 @@ function bindCanvas(el) {
       requestDraw();
       return;
     }
+    if (P.draft) {
+      // Un point tous les deux pixels : un trait fluide sans milliers de points.
+      if (Math.hypot(sx - P.draft.sx, sy - P.draft.sy) < 2) return;
+      P.draft.sx = sx;
+      P.draft.sy = sy;
+      P.draft.points.push([P.pointer.x, P.pointer.y]);
+      requestDraw();
+      return;
+    }
     const d = P.drag;
-    if (press && Math.hypot(sx - press.sx, sy - press.sy) > 8) { clearTimeout(press.timer); press = null; }
     if (!d) return;
+    if (d.erase) { eraseAt(P.pointer); return; }
     if (!d.moved && Math.hypot(sx - d.sx, sy - d.sy) < 4) return;
     d.moved = true;
     if (d.pan) {
@@ -424,11 +416,23 @@ function bindCanvas(el) {
 
   const end = e => {
     pointers.delete(e.pointerId);
-    if (press) { clearTimeout(press.timer); press = null; }
     if (pinch) { if (pointers.size < 2) pinch = null; return; }
+    if (P.draft) {
+      const draft = P.draft;
+      P.draft = null;
+      if (previewBlocked()) { requestDraw(); return; }
+      const points = draft.points.map(p => [Math.round(p[0] * 100) / 100, Math.round(p[1] * 100) / 100]);
+      // Le trait reste affiché jusqu'à ce que le serveur le renvoie.
+      const pending = { id: `draft-${Date.now()}`, kind: 'stroke', points, color: draft.color, width: draft.width, by: P.me?.id };
+      overlay?.set(pending);
+      send({ t: 'draw', action: 'add', item: { kind: 'stroke', points, color: draft.color, width: draft.width } })
+        .finally(() => overlay?.remove([pending.id]));
+      requestDraw();
+      return;
+    }
     const d = P.drag;
     P.drag = null;
-    if (!d || d.pan || !d.moved) { requestDraw(); return; }
+    if (!d || d.pan || d.erase || !d.moved) { requestDraw(); return; }
     if (d.blocked) { toast('Un mur bloque le passage', 'error', 2000); requestDraw(); return; }
     const settling = new Map([[d.id, d.to]]);
     P.settling = settling;
@@ -438,7 +442,7 @@ function bindCanvas(el) {
   };
   el.addEventListener('pointerup', end);
   el.addEventListener('pointercancel', end);
-  el.addEventListener('contextmenu', e => { e.preventDefault(); const { sx, sy } = pos(e); openMenu(sx, sy); });
+  el.addEventListener('contextmenu', e => e.preventDefault());
   el.addEventListener('wheel', e => {
     e.preventDefault();
     if (locked()) return;
@@ -458,14 +462,13 @@ function MapView() {
   const layer = useRef(null);
   useEffect(() => {
     canvas = ref.current;
-    overlay = new MemeOverlay(layer.current, {
+    overlay = new OverlayLayer(layer.current, {
       interactive: true,
-      canEdit: m => P.canMeme && !P.me?.preview && (m.by === P.me?.id || !!P.me?.dm),
-      onUpdate: (id, patch) => send({ t: 'meme', action: 'update', memeId: id, patch }),
-      onRemove: id => send({ t: 'meme', action: 'remove', ids: [id] }),
-      onEdit: m => { P.dialog = { kind: 'maker', mk: m.kind, image: m.image ? { ref: m.image } : null, edit: m }; notify(); },
-      onPin: pinMeme,
-      onSelect: id => { P.selMeme = id; },
+      canEdit: it => P.canDraw && !P.me?.preview && mine(it),
+      mode: () => P.tool,
+      onUpdate: (id, patch) => send({ t: 'draw', action: 'update', itemId: id, patch }),
+      onRemove: id => send({ t: 'draw', action: 'remove', ids: [id] }),
+      onSelect: id => { P.selItem = id; },
     });
     const fit = () => {
       const r = wrap.current.getBoundingClientRect();
@@ -482,9 +485,9 @@ function MapView() {
     start();
     return () => ro.disconnect();
   }, []);
-  return html`<div class="mc-wrap pl-wrap" ref=${wrap}>
+  return html`<div class=${`mc-wrap pl-wrap tool-${P.tool}`} ref=${wrap}>
     <canvas class="mc" ref=${ref}></canvas>
-    <div class="meme-host" ref=${layer}></div>
+    <div class="ov-layer" ref=${layer}></div>
   </div>`;
 }
 
@@ -494,79 +497,37 @@ function Banners() {
   if (P.table.lock) out.push(['lock', 'Le MJ a verrouillé la vue sur la TV']);
   if (P.doc?.frozen) out.push(['warn', 'Carte gelée : le MJ replace la scène']);
   else if (P.table.blockTokens) out.push(['warn', 'Le MJ a bloqué les tokens']);
-  if (P.table.serious) out.push(['info', 'Mode sérieux : memes cachés']);
-  if (P.pin) out.push(['info', 'Touche un token pour y coller le meme · Échap pour annuler']);
-  if (P.armed) out.push(['info', 'Touche la carte pour poser la réaction · Échap pour arrêter']);
   if (!out.length) return null;
   return html`<div class="pl-banners">${out.map(([k, text]) => html`<div class=${`pl-banner ${k}`}>${k === 'lock' ? '🔒 ' : ''}${text}</div>`)}</div>`;
 }
 
-function MemeMenu() {
-  const m = P.menu;
-  if (!m) return null;
-  const close = () => { P.menu = null; notify(); };
-  const left = Math.max(8, Math.min(P.size.w - 268, m.sx - 130));
-  const top = Math.max(52, Math.min(P.size.h - 150, m.sy - 20));
-  return html`<div class="meme-menu" style=${{ left: `${left}px`, top: `${top}px` }} onPointerDown=${e => e.stopPropagation()}>
-    <div class="meme-menu-row">
-      ${REACTIONS.map(r => html`<button type="button" class="react-b" onClick=${() => { react(r, m.w); close(); }}>${r}</button>`)}
-      <button type="button" class="react-b ping-b" title="Repère : « ici ! »" onClick=${() => { react('ping', m.w); close(); }}>📍</button>
-    </div>
-    <div class="meme-menu-row">
-      <button type="button" class="chip" onClick=${() => { close(); pickFile(m.w); }}>🖼 Image</button>
-      <button type="button" class="chip" onClick=${() => { P.menu = null; P.dialog = { kind: 'maker', mk: 'text', at: m.w }; notify(); }}>Aa Texte</button>
-      <button type="button" class="chip" onClick=${() => { P.menu = null; P.dialog = { kind: 'shelf', at: m.w }; notify(); }}>📚 Mèmothèque</button>
-    </div>
-  </div>`;
-}
-
 function Toolbar() {
   if (!P.doc) return null;
-  if (!P.canMeme) {
-    // Rien à proposer (vue verrouillée, mode sérieux) : pas de barre du tout.
-    if (P.table.serious && locked()) return null;
-    return html`<div class="pl-bar">
-      ${P.table.serious ? null : html`<span class="muted small">Le MJ a coupé les memes</span>`}
-      ${locked() ? null : html`<button type="button" class="btn tiny" title="Revenir au cadrage de la TV" onClick=${frameTv}>⤢</button>`}
-    </div>`;
+  const recenter = locked() ? null : html`<button type="button" class="btn tiny" title="Revenir au cadrage de la TV" onClick=${frameTv}>⤢</button>`;
+  if (!P.canDraw) {
+    return html`<div class="pl-bar"><span class="muted small">Le MJ a coupé les images et les dessins</span>${recenter}</div>`;
   }
-  const arm = r => { P.armed = P.armed === r ? null : r; refresh(); };
+  const tool = (id, icon, text, title) => html`<button type="button" class=${`btn tiny ${P.tool === id ? 'on' : ''}`} title=${title} onClick=${() => setTool(id)}>${icon} ${text}</button>`;
   return html`<div class="pl-bar">
-    <div class="pl-reacts">
-      ${REACTIONS.map(r => html`<button type="button" class=${`react-b ${P.armed === r ? 'on' : ''}`} onClick=${() => arm(r)}>${r}</button>`)}
-      <button type="button" class=${`react-b ping-b ${P.armed === 'ping' ? 'on' : ''}`} title="Repère : « ici ! »" onClick=${() => arm('ping')}>📍</button>
+    <div class="pl-tools">
+      ${tool('move', '✋', 'Déplacer', 'Bouger la vue, tes tokens et tes images')}
+      ${tool('pen', '✎', 'Dessiner', 'Dessiner à main levée')}
+      ${tool('erase', '⌫', 'Gomme', 'Toucher un de tes traits ou une de tes images l\'efface')}
     </div>
+    ${P.tool === 'pen' ? html`<div class="pl-pen">
+      ${PEN_COLORS.map(c => html`<button type="button" class=${`swatch ${P.pen.color === c ? 'on' : ''}`} aria-label=${c} style=${{ background: c }} onClick=${() => setPen({ color: c })}></button>`)}
+      ${PEN_WIDTHS.map((w, i) => html`<button type="button" class=${`pen-w ${P.pen.width === w ? 'on' : ''}`} title=${['Fin', 'Moyen', 'Épais'][i]} onClick=${() => setPen({ width: w })}><span style=${{ width: `${4 + i * 4}px`, height: `${4 + i * 4}px` }}></span></button>`)}
+    </div>` : null}
     <span class="sep"></span>
-    <button type="button" class="btn tiny" title="Une image ou un GIF · aussi Ctrl+V ou glisser-déposer" onClick=${() => pickFile(memeAt())}>🖼 Image</button>
-    <button type="button" class="btn tiny" onClick=${() => { P.dialog = { kind: 'maker', mk: 'text', at: memeAt() }; notify(); }}>Aa Texte</button>
-    <button type="button" class="btn tiny" onClick=${() => { P.dialog = { kind: 'shelf', at: memeAt() }; notify(); }}>📚 Mèmothèque</button>
-    ${locked() ? null : html`<button type="button" class="btn tiny" title="Revenir au cadrage de la TV" onClick=${frameTv}>⤢</button>`}
+    <button type="button" class="btn tiny" title="Une image ou un GIF · aussi Ctrl+V ou glisser-déposer" onClick=${pickFile}>🖼 Image</button>
+    <button type="button" class="btn tiny danger ghost" title="Effacer tout ce que tu as collé et dessiné sur cette carte" onClick=${clearMine}>🗑 Tout effacer</button>
+    ${recenter}
   </div>`;
-}
-
-function Dialogs() {
-  const d = P.dialog;
-  if (!d) return null;
-  const close = () => { P.dialog = null; notify(); };
-  if (d.kind === 'shelf') {
-    return html`<${ShelfDialog} onClose=${close} toast=${toast} onPick=${m => {
-      P.dialog = { kind: 'maker', mk: m.kind, image: m.image ? { ref: m.image, name: m.name } : null, initial: m, at: d.at, size: m.size };
-      notify();
-    }} />`;
-  }
-  if (d.kind === 'maker') {
-    return html`<${MemeMaker} kind=${d.mk} image=${d.image} initial=${d.edit || d.initial || {}} edit=${d.edit} onClose=${close} onDone=${v => {
-      close();
-      if (d.edit) send({ t: 'meme', action: 'update', memeId: d.edit.id, patch: d.mk === 'text' ? { text: v.text } : { top: v.top, bottom: v.bottom } });
-      else placeMeme({ kind: d.mk, image: d.image, ...v, at: d.at || memeAt(), size: d.size });
-    }} />`;
-  }
-  return null;
 }
 
 function TopLine() {
   return html`<header class="pl-top">
-    <a class="home" href=${`/c/${campaignId}`} title="Retour aux fiches">⚔</a>
+    <a class="home" href=${`/c/${campaignId}${viewAs ? `?as=${encodeURIComponent(viewAs)}` : ''}`} title="Retour aux fiches">⚔</a>
     <span class="camp-name">${P.campaign?.name || ''}</span>
     <span class="grow"></span>
     <span class=${`conn-dot ${P.conn}`} title=${P.conn === 'online' ? 'Connecté' : 'Hors ligne'}></span>
@@ -579,24 +540,26 @@ function App() {
     const fn = () => force(x => x + 1);
     subs.add(fn);
     const key = e => {
-      const t = e.target;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
-      if (e.key === 'Escape') { P.pin = null; P.armed = null; P.menu = null; overlay?.select(null); refresh(); }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && P.selMeme && overlay?.get(P.selMeme)) send({ t: 'meme', action: 'remove', ids: [P.selMeme] });
+      const tg = e.target;
+      if (tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA')) return;
+      if (e.key === 'Escape') { P.draft = null; overlay?.select(null); setTool('move'); }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && P.selItem && overlay?.get(P.selItem)) send({ t: 'draw', action: 'remove', ids: [P.selItem] });
     };
     const paste = e => {
-      if (P.dialog || !P.doc) return;
+      const tg = e.target;
+      if (tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA')) return;
+      if (!P.doc) return;
       const src = pickTransfer(e.clipboardData);
-      if (src) { e.preventDefault(); takeImage(src); }
+      if (src) { e.preventDefault(); pasteImage(src); }
     };
-    const over = e => { if (P.doc && P.canMeme) e.preventDefault(); };
+    const over = e => { if (P.doc && P.canDraw) e.preventDefault(); };
     const drop = e => {
       if (!P.doc) return;
       e.preventDefault();
       const src = pickTransfer(e.dataTransfer);
       if (!src) return;
       const r = canvas.getBoundingClientRect();
-      takeImage(src, toWorld(e.clientX - r.left, e.clientY - r.top));
+      pasteImage(src, toWorld(e.clientX - r.left, e.clientY - r.top));
     };
     window.addEventListener('keydown', key);
     window.addEventListener('paste', paste);
@@ -624,11 +587,9 @@ function App() {
       <${MapView} />
       ${!P.doc && P.conn === 'online' ? html`<div class="mc-msg big">La TV n'affiche aucune carte pour l'instant.</div>` : null}
       <${Banners} />
-      <${MemeMenu} />
       <${Toolbar} />
     </div>
-    <${Dialogs} />
-    <div class="map-toasts">${P.toasts.map(t => html`<div key=${t.id} class=${`m-toast ${t.kind}`}>${t.text}</div>`)}</div>
+    <div class="map-toasts">${P.toasts.map(x => html`<div key=${x.id} class=${`m-toast ${x.kind}`}>${x.text}</div>`)}</div>
   </div>`;
 }
 

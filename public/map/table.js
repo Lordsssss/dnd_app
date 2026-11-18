@@ -1,5 +1,5 @@
-// Le panneau « Memes » du MJ : ce que les joueurs peuvent faire depuis leur onglet « Carte ».
-// Vue verrouillée, tokens bloqués, memes permis ou coupés, joueur par joueur.
+// Le panneau « Joueurs » du MJ : ce que les joueurs peuvent faire depuis leur onglet « Carte ».
+// Vue verrouillée, tokens bloqués, images collées et dessins permis ou coupés, joueur par joueur.
 import { t, tx } from '/shared/i18n.js';
 import { html, useEffect, useState } from '/app/html.js';
 import { api, campaignId } from './net.js';
@@ -13,15 +13,15 @@ function Switch({ on, label, hint, onChange }) {
   </label>`;
 }
 
-export function MemePanel({ onImage }) {
+export function PlayersPanel({ onImage }) {
   const tb = app.table;
   const [players, setPlayers] = useState(null);
   useEffect(() => { api(`/api/c/${campaignId}/map/players`).then(setPlayers).catch(e => { setPlayers([]); toast(e.message, 'error'); }); }, []);
   const muted = new Set(tb.muted || []);
   const setMuted = (id, off) => setTable({ muted: off ? [...muted, id] : [...muted].filter(x => x !== id) });
-  const n = app.memeOverlay?.count || 0;
-  const open = dialog => { app.dialog = dialog; notify(); };
-  return html`<${Dialog} title="Joueurs et memes" wide>
+  const n = app.overlay?.count || 0;
+  const mine = app.me ? app.overlay?.countBy(app.me.id) || 0 : 0;
+  return html`<${Dialog} title="Joueurs" wide>
     <div class="tb-panel">
       <section>
         <h3>Vue des joueurs</h3>
@@ -33,16 +33,14 @@ export function MemePanel({ onImage }) {
         </div>
       </section>
       <section>
-        <h3>Memes</h3>
-        <${Switch} on=${tb.memes} label="Les joueurs peuvent poser des memes" onChange=${v => setTable({ memes: v })} />
-        <${Switch} on=${tb.memesOnTv} label="Afficher les memes sur la TV" onChange=${v => setTable({ memesOnTv: v })} />
-        <${Switch} on=${tb.serious} label="Mode sérieux : cacher tous les memes, pour tout le monde" hint="Rien n'est effacé : ils reviennent quand tu l'éteins" onChange=${v => setTable({ serious: v })} />
-        <p class="muted small">${n ? t(n > 1 ? '{n} memes sur cette carte.' : '{n} meme sur cette carte.', { n }) : t('Aucun meme sur cette carte.')} Colle une image sur la carte avec Ctrl+V, ou glisse-la.</p>
+        <h3>Images et dessins</h3>
+        <p class="muted small">Chacun colle des images avec Ctrl+V ou en les glissant sur la carte, dessine, et n'efface que ce qu'il a posé.</p>
+        <${Switch} on=${tb.draw} label="Les joueurs peuvent coller des images et dessiner" onChange=${v => setTable({ draw: v })} />
+        <${Switch} on=${tb.onTv} label="Les afficher sur la TV" onChange=${v => setTable({ onTv: v })} />
+        <p class="muted small">${n ? t(n > 1 ? '{n} éléments sur cette carte, dont {m} à toi.' : '{n} élément sur cette carte, dont {m} à toi.', { n, m: mine }) : t('Rien sur cette carte.')}</p>
         <div class="tb-row">
-          <button type="button" class="btn small" disabled=${!app.doc} onClick=${() => { app.dialog = null; notify(); onImage(); }}>🖼 Image</button>
-          <button type="button" class="btn small" disabled=${!app.doc} onClick=${() => open({ kind: 'memeMaker', mk: 'text' })}>Aa Texte</button>
-          <button type="button" class="btn small" onClick=${() => open({ kind: 'shelf' })}>📚 Mèmothèque</button>
-          <button type="button" class="btn small danger ghost" disabled=${!n} onClick=${() => { if (confirm(tx('Effacer tous les memes de cette carte ?'))) request({ t: 'meme', action: 'clear' }); }}>Tout effacer sur cette carte</button>
+          <button type="button" class="btn small" disabled=${!app.doc} onClick=${() => { app.dialog = null; notify(); onImage(); }}>🖼 Coller une image</button>
+          <button type="button" class="btn small danger ghost" disabled=${!mine} onClick=${() => { if (confirm(tx('Effacer toutes tes images sur cette carte ?'))) request({ t: 'draw', action: 'clearMine' }); }}>Effacer mes images</button>
         </div>
       </section>
       <section>
@@ -51,8 +49,8 @@ export function MemePanel({ onImage }) {
           ${players.map(p => html`<div class="tb-player" key=${p.id}>
             <span class="tb-name">${p.name}${p.chars.length ? html` <small class="muted">${p.chars.map(c => c.name).join(', ')}</small>` : null}</span>
             <a class="btn tiny ghost" href=${`/c/${campaignId}/carte/joueur?as=${encodeURIComponent(p.id)}`} target=${`joueur-${campaignId}-${p.id}`} rel="noopener" title="Son onglet Carte, tel qu'il le voit, en lecture seule">👁 Sa vue ↗</a>
-            <${Switch} on=${!muted.has(p.id)} label="Memes" onChange=${v => setMuted(p.id, !v)} />
-            <button type="button" class="btn tiny danger ghost" onClick=${() => { if (confirm(tx('Effacer tous les memes de ce joueur, sur toutes les cartes ?'))) request({ t: 'meme', action: 'wipe', account: p.id }); }}>Effacer ses memes</button>
+            <${Switch} on=${!muted.has(p.id)} label="Images et dessins" onChange=${v => setMuted(p.id, !v)} />
+            <button type="button" class="btn tiny danger ghost" title="Sur toutes les cartes de la campagne" onClick=${() => { if (confirm(tx('Effacer tout ce que ce joueur a collé et dessiné, sur toutes les cartes ?'))) request({ t: 'draw', action: 'wipe', account: p.id }); }}>Effacer ses images et dessins</button>
           </div>`)}
         </div>`}
       </section>

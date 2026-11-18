@@ -7,10 +7,10 @@ import { sortFolders, wallIssues } from '/shared/map/scene.js';
 import { campaignId, getToken, goLogin } from './net.js';
 import {
   app, fitToMap, notify, op, openScene, redo, refresh, request, requestDraw, selectedTokens, sendLive, sendToTv,
-  setDraw, setTable, start, subscribe, toast, toWorld, tokenAt, undo, viewRect,
+  setDraw, setTable, start, subscribe, toast, toWorld, undo, viewRect,
 } from './state.js';
-import { MemeMaker, MemeOverlay, ShelfDialog, defaultSize, fetchMeme, pickTransfer, uploadMeme } from './memes.js';
-import { MemePanel } from './table.js';
+import { OverlayLayer, defaultImageSize, fetchPaste, pickTransfer, uploadPaste } from './overlay.js';
+import { PlayersPanel } from './table.js';
 import { drawScene, fitCamera, boundsRect, label, tokenBox } from './render.js';
 import { tokenImage } from './images.js';
 import { selectTool, placeTool, rulerTool, templateTool, drawTool, rotateTokens } from './tools/play.js';
@@ -171,39 +171,31 @@ function drawAll() {
     tokenStyle: (t, seen) => (t.hidden ? 0.55 : seen ? 1 : 0.7),
     afterFog: drawOverlays,
   });
-  // Les memes : le MJ les voit tous, même collés à un token caché ; le mode sérieux les cache.
-  const positions = app.t.drag?.moved ? app.t.drag.positions : app.t.settling || null;
-  app.memeOverlay?.render({ doc: app.doc, cam: app.cam, seen: null, hidden: app.table.serious, positions });
+  // Les images collées et les traits des joueurs, par-dessus tout.
+  app.overlay?.render({ doc: app.doc, cam: app.cam });
 }
 
-// --------------------------------------------------------------- Memes du MJ
+// --------------------------------------------------------------- Images collées par le MJ
 
-function memeCenter() {
+function viewCenter() {
   const r = viewRect();
   return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
 }
 
-export async function takeMeme(src, at = memeCenter()) {
+// Une image collée, glissée ou choisie : envoyée, puis posée là où pointe la souris.
+export async function pasteImage(src, at = viewCenter()) {
   try {
-    const image = src.file ? await uploadMeme(src.file) : await fetchMeme(src.url);
-    app.dialog = { kind: 'memeMaker', mk: 'image', image, at };
-    notify();
+    const image = src.ref ? src : src.file ? await uploadPaste(src.file) : await fetchPaste(src.url);
+    request({ t: 'draw', action: 'add', item: { kind: 'image', image: image.ref, x: at.x, y: at.y, size: defaultImageSize(app.cam, app.size) } });
   } catch (e) { toast(e.message, 'error', 5000); }
 }
 
-function placeMeme({ kind, image, top, bottom, text, ttl, at, size }) {
-  request({ t: 'meme', action: 'add', meme: {
-    kind, image: image?.ref || '', name: image?.name || '', top, bottom, text, ttl,
-    x: at.x, y: at.y, size: size || defaultSize(kind, app.cam, app.size),
-  } });
-}
-
-function pinMeme(m) {
-  const at = app.memeOverlay.where(m);
-  if (!at) return;
-  if (m.attach) { request({ t: 'meme', action: 'update', memeId: m.id, patch: { attach: null, x: at.x, y: at.y } }); return; }
-  app.memePin = { id: m.id, at };
-  refresh();
+export function pickPasteFile() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/png,image/jpeg,image/gif,image/webp';
+  input.onchange = () => { if (input.files[0]) pasteImage({ file: input.files[0] }); };
+  input.click();
 }
 
 // --------------------------------------------------------------- Le canvas et la souris
@@ -232,29 +224,21 @@ function MapCanvas() {
     ro.observe(wrap.current);
     fit();
 
-    app.memeOverlay = new MemeOverlay(layer.current, {
+    // Le MJ, comme chacun, ne déplace et n'efface que ses propres images ; elles ne répondent
+    // qu'à l'outil Tokens, pour ne pas gêner la règle, les gabarits ou le dessin.
+    app.overlay = new OverlayLayer(layer.current, {
       interactive: true,
-      canEdit: () => true,
-      onUpdate: (id, patch) => request({ t: 'meme', action: 'update', memeId: id, patch }),
-      onRemove: id => request({ t: 'meme', action: 'remove', ids: [id] }),
-      onEdit: m => { app.dialog = { kind: 'memeMaker', mk: m.kind, image: m.image ? { ref: m.image } : null, edit: m }; notify(); },
-      onPin: pinMeme,
+      canEdit: it => !!app.me && it.by === app.me.id,
+      mode: () => (app.mode === 'play' && app.tool === 'select' ? 'move' : 'pen'),
+      onUpdate: (id, patch) => request({ t: 'draw', action: 'update', itemId: id, patch }),
+      onRemove: id => request({ t: 'draw', action: 'remove', ids: [id] }),
     });
 
     let pan = null;
     const world = e => toWorld(e.offsetX, e.offsetY);
     const down = e => {
       canvas.setPointerCapture(e.pointerId);
-      app.memeOverlay?.select(null);
-      if (app.memePin && e.button === 0) {
-        const w = world(e);
-        const t = tokenAt(w.x, w.y);
-        const pin = app.memePin;
-        app.memePin = null;
-        if (t) request({ t: 'meme', action: 'update', memeId: pin.id, patch: { attach: t.id, x: pin.at.x - t.x, y: pin.at.y - t.y } });
-        refresh();
-        return;
-      }
+      app.overlay?.select(null);
       if (e.button === 1 || e.button === 2 || app.t.space) {
         pan = { x: e.clientX, y: e.clientY, cam: { ...app.cam } };
         canvas.style.cursor = 'grabbing';
@@ -317,12 +301,11 @@ function MapCanvas() {
     if (!src) return;
     e.preventDefault();
     const r = ref.current.getBoundingClientRect();
-    takeMeme(src, toWorld(e.clientX - r.left, e.clientY - r.top));
+    pasteImage(src, toWorld(e.clientX - r.left, e.clientY - r.top));
   };
   return html`<div class="mc-wrap" ref=${wrap} onDragOver=${dragOver} onDrop=${drop}>
     <canvas class="mc" ref=${ref}></canvas>
-    <div class="meme-host" ref=${layer}></div>
-    ${app.memePin ? html`<div class="mc-banner">Clique sur un token pour y coller le meme. Échap pour annuler.</div>` : null}
+    <div class="ov-layer" ref=${layer}></div>
     ${app.loadingMap ? html`<div class="mc-msg">Chargement de la carte…</div>` : null}
     ${!app.doc && app.conn === 'online' ? html`<div class="mc-msg big">
       ${app.scenes.length ? 'Choisis une carte en haut.' : html`Aucune carte. <button type="button" class="btn primary" onClick=${() => { app.dialog = { kind: 'scene' }; notify(); }}>Créer la première</button>`}
@@ -559,24 +542,16 @@ function TopBar() {
   </header>`;
 }
 
-function pickMemeFile() {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = 'image/png,image/jpeg,image/gif,image/webp';
-  input.onchange = () => { if (input.files[0]) takeMeme({ file: input.files[0] }); };
-  input.click();
-}
-
 // Ce que les joueurs peuvent faire depuis leur onglet « Carte ».
 function PlayersGroup() {
   const tb = app.table;
-  const n = app.memeOverlay?.count || 0;
+  const n = app.overlay?.count || 0;
   return html`<div class="group tv-group">
     <span class="lbl">Joueurs</span>
     <button type="button" class=${`btn tiny ${tb.lock ? 'on warn' : ''}`} title="Chaque onglet de joueur suit le cadrage de la TV et ne peut plus bouger la vue" onClick=${() => setTable({ lock: !tb.lock })}>${tb.lock ? '🔒 Vue verrouillée' : 'Verrouiller la vue'}</button>
     <button type="button" class="btn tiny" title="Ramène une fois la vue de chaque joueur sur le cadrage de la TV, sans la verrouiller" onClick=${() => request({ t: 'summon' })}>Ramener sur la TV</button>
     <button type="button" class=${`btn tiny ${tb.blockTokens ? 'on warn' : ''}`} title="Les joueurs ne déplacent plus leurs tokens" onClick=${() => setTable({ blockTokens: !tb.blockTokens })}>${tb.blockTokens ? 'Tokens bloqués' : 'Bloquer leurs tokens'}</button>
-    <button type="button" class=${`btn tiny ${tb.serious ? 'on warn' : ''}`} title="Memes, droits des joueurs, mode sérieux" onClick=${() => { app.dialog = { kind: 'memes' }; notify(); }}>${tb.serious ? 'Mode sérieux' : 'Memes'}${n ? ` · ${n}` : ''}</button>
+    <button type="button" class=${`btn tiny ${!tb.draw ? 'on warn' : ''}`} title="Images collées et dessins des joueurs : droits, TV, tout effacer" onClick=${() => { app.dialog = { kind: 'players' }; notify(); }}>${tb.draw ? 'Images et dessins' : 'Images et dessins coupés'}${n ? ` · ${n}` : ''}</button>
   </div>`;
 }
 
@@ -596,21 +571,7 @@ function Dialogs() {
   if (d.kind === 'autowalls') return html`<${AutoWallsDialog} />`;
   if (d.kind === 'scenefile') return html`<${SceneFileDialog} />`;
   if (d.kind === 'library') return html`<${ImageLibraryDialog} key=${d.tab || ''} />`;
-  if (d.kind === 'memes') return html`<${MemePanel} onImage=${() => pickMemeFile()} />`;
-  const close = () => { app.dialog = null; notify(); };
-  if (d.kind === 'shelf') {
-    return html`<${ShelfDialog} canDelete onClose=${close} toast=${toast} onPick=${m => {
-      app.dialog = { kind: 'memeMaker', mk: m.kind, image: m.image ? { ref: m.image, name: m.name } : null, initial: m, size: m.size };
-      notify();
-    }} />`;
-  }
-  if (d.kind === 'memeMaker') {
-    return html`<${MemeMaker} kind=${d.mk} image=${d.image} initial=${d.edit || d.initial || {}} edit=${d.edit} onClose=${close} onDone=${v => {
-      close();
-      if (d.edit) request({ t: 'meme', action: 'update', memeId: d.edit.id, patch: d.mk === 'text' ? { text: v.text } : { top: v.top, bottom: v.bottom } });
-      else placeMeme({ kind: d.mk, image: d.image, ...v, at: d.at || memeCenter(), size: d.size });
-    }} />`;
-  }
+  if (d.kind === 'players') return html`<${PlayersPanel} onImage=${pickPasteFile} />`;
   return null;
 }
 
@@ -620,9 +581,8 @@ function onKey(e) {
   const t = e.target;
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
   if (app.dialog || store.ui.modal) return;
-  if (e.key === 'Escape' && app.memePin) { app.memePin = null; refresh(); return; }
-  const sel = app.memeOverlay?.sel;
-  if ((e.key === 'Delete' || e.key === 'Backspace') && sel && !app.selection.size) { e.preventDefault(); request({ t: 'meme', action: 'remove', ids: [sel] }); return; }
+  const sel = app.overlay?.sel;
+  if ((e.key === 'Delete' || e.key === 'Backspace') && sel && !app.selection.size) { e.preventDefault(); request({ t: 'draw', action: 'remove', ids: [sel] }); return; }
   const k = e.key.toLowerCase();
   if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
   if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); redo(); return; }
@@ -650,13 +610,13 @@ function onKeyUp(e) {
   if (e.code === 'Space') app.t.space = false;
 }
 
-// Ctrl+V sur la carte : une image ou une adresse d'image devient un meme.
+// Ctrl+V sur la carte : une image, ou l'adresse d'une image, se pose sur la carte.
 function onPaste(e) {
   const t = e.target;
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
   if (app.dialog || store.ui.modal || !app.doc) return;
   const src = pickTransfer(e.clipboardData);
-  if (src) { e.preventDefault(); takeMeme(src); }
+  if (src) { e.preventDefault(); pasteImage(src); }
 }
 
 // --------------------------------------------------------------- Connexion et coquille

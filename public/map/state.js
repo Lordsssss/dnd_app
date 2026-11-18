@@ -48,10 +48,10 @@ export const app = {
   wallSel: null,
   testOrigin: null,
 
-  // Ce que les joueurs peuvent faire : vue verrouillée, tokens bloqués, memes.
-  table: { lock: false, blockTokens: false, memes: true, muted: [], memesOnTv: true, serious: false },
-  memeOverlay: null,       // le calque de memes posé sur le canvas
-  memePin: null,           // meme en attente d'un token où se coller
+  // Ce que les joueurs peuvent faire : vue verrouillée, tokens bloqués, images et dessins.
+  table: { lock: false, blockTokens: false, draw: true, muted: [], onTv: true },
+  me: null,                // le compte du MJ, pour savoir quelles images collées sont à lui
+  overlay: null,           // le calque des images collées et des traits, posé sur le canvas
 };
 
 const subs = new Set();
@@ -123,6 +123,7 @@ function onMessage(m) {
       app.tvScene = m.tvScene;
       if (m.t === 'welcome') {
         app.campaign = m.campaign || null;
+        app.me = m.me || null;
         if (app.campaign) document.title = `Carte · ${app.campaign.name}`;
         const last = (() => { try { return localStorage.getItem(`mapScene:${campaignId}`); } catch { return null; } })();
         const pick = [app.sceneId, last, m.tvScene, m.scenes[0]?.id].find(id => id && m.scenes.some(s => s.id === id));
@@ -179,10 +180,9 @@ function onMessage(m) {
       app.table = m.table;
       refresh();
       break;
-    case 'memes': if (m.scene === app.sceneId) { app.memeOverlay?.setAll(m.memes); refresh(); } break;
-    case 'memeSet': if (m.scene === app.sceneId) { app.memeOverlay?.set(m.meme); notify(); } break;
-    case 'memeGone': if (m.scene === app.sceneId) { app.memeOverlay?.remove(m.ids); notify(); } break;
-    case 'react': if (m.scene === app.sceneId) app.memeOverlay?.react(m.r); break;
+    case 'overlay': if (m.scene === app.sceneId) { app.overlay?.setAll(m.items); refresh(); } break;
+    case 'itemSet': if (m.scene === app.sceneId) { app.overlay?.set(m.item); notify(); } break;
+    case 'itemGone': if (m.scene === app.sceneId) { app.overlay?.remove(m.ids); notify(); } break;
     default: break;
   }
 }
@@ -213,7 +213,7 @@ export async function op(o) {
   return r;
 }
 
-// Un message au serveur hors des opérations de la scène : memes, réglages de la table.
+// Un message au serveur hors des opérations de la scène : images collées, réglages de la table.
 export async function request(msg) {
   if (!conn) return { ok: false };
   const r = await conn.request(msg);

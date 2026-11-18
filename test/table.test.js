@@ -1,5 +1,6 @@
 // L'onglet « Carte » des joueurs : ce qu'ils reçoivent, les tokens qu'ils déplacent, la vue
-// verrouillée par le MJ, et le calque de memes avec les droits que le MJ donne ou retire.
+// verrouillée par le MJ, et le calque des images collées et des dessins, avec les droits que le
+// MJ donne ou retire.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { start, login, api, ws, PNG } from './helpers.js';
@@ -37,7 +38,7 @@ async function setup() {
     const welcome = await c.next(m => m.t === 'welcome');
     const table = await c.next(m => m.t === 'table');
     const sc = await c.next(m => m.t === 'scene');
-    await c.next(m => m.t === 'memes');
+    await c.next(m => m.t === 'overlay');
     return Object.assign(c, { welcome, table, scene: sc, who });
   };
   // Toutes les connexions fermées, même après un échec : sinon le serveur ne s'arrête pas.
@@ -58,15 +59,15 @@ test('un joueur voit la carte de la TV, sans tokens cachés, PV, notes, initiati
     assert.ok(!/NOTE-MJ|Assassin|"hp"|"current"|canUndo|undoLabel/.test(raw));
     assert.equal(p.scene.doc.tokens.find(t => t.id === 'pr').own, true, 'son PJ, trouvé par le nom de sa fiche');
     assert.equal(p.scene.doc.tokens.find(t => t.id === 'pb').own, undefined);
-    assert.equal(p.table.canMeme, true);
-    assert.equal(p.table.table.muted, undefined, 'la liste des joueurs privés de memes reste au MJ');
+    assert.equal(p.table.canDraw, true);
+    assert.equal(p.table.table.muted, undefined, 'la liste des joueurs privés de dessin reste au MJ');
 
     // Le MJ révèle un token : le joueur le reçoit filtré, sans PV.
     await x.dm.request({ t: 'op', scene: x.scene, op: { type: 'token.update', id: 'cache', patch: { hidden: false } } });
     const u = await p.next(m => m.t === 'update' && m.set?.tokens?.some(t => t.id === 'cache'));
     assert.ok(!/"hp"|NOTE-MJ/.test(JSON.stringify(u)));
 
-    // Un joueur ne fait rien d'autre que déplacer ses tokens, poser des memes et réagir.
+    // Un joueur ne fait rien d'autre que déplacer ses tokens, coller des images et dessiner.
     for (const m of [{ t: 'open', scene: x.scene }, { t: 'tvScene', scene: x.scene }, { t: 'undo', scene: x.scene }, { t: 'table', patch: { lock: true } }, { t: 'summon' }]) {
       assert.equal((await p.request(m)).ok, false, m.t);
     }
@@ -148,96 +149,89 @@ test('vue verrouillée et rappel : les joueurs reçoivent l’ordre, la TV aussi
   } finally { await x.stop(); }
 });
 
-test('memes : posés, vus par la table, effacés par leur auteur ou le MJ, coupés par le MJ', async () => {
+test('images et dessins : chacun colle, dessine et n’efface que ce qu’il a posé ; le MJ coupe les droits', async () => {
   const x = await setup();
   try {
     const tv = x.open(x.s.port, '/ws/map', { t: 'hello', token: x.mj.body.token, campaign: 'c1', role: 'tv' });
-    await tv.next(m => m.t === 'memes');
+    await tv.next(m => m.t === 'overlay');
     const ren = await x.player('ren', x.ren.body.token);
     const brakka = await x.player('brakka', x.brakka.body.token);
     const rcall = api(x.s.base, x.ren.body.token);
+    const add = (p, item) => p.request({ t: 'draw', action: 'add', item });
 
-    // Une image envoyée par un joueur : rangée dans « Memes », jamais un SVG.
-    const img = await rcall('/api/c/c1/assets?kind=meme&name=chat.png', { method: 'POST', raw: PNG });
+    // Une image envoyée par un joueur : rangée dans « Images collées », jamais un SVG.
+    const img = await rcall('/api/c/c1/assets?kind=paste&name=chat.png', { method: 'POST', raw: PNG });
     assert.equal(img.status, 200);
     assert.match(img.body.ref, /^asset:/);
-    assert.equal((await rcall('/api/c/c1/assets?kind=meme&name=x.svg', { method: 'POST', raw: SVG })).status, 415);
-    assert.equal((await rcall('/api/c/c1/assets?kind=meme&name=big.png', { method: 'POST', raw: Buffer.concat([PNG, Buffer.alloc(5_000_100)]) })).status, 413);
+    assert.equal(x.s.db.getAsset(img.body.ref.slice(6)).folder, 'Images collées');
+    assert.equal((await rcall('/api/c/c1/assets?kind=paste&name=x.svg', { method: 'POST', raw: SVG })).status, 415);
+    assert.equal((await rcall('/api/c/c1/assets?kind=paste&name=big.png', { method: 'POST', raw: Buffer.concat([PNG, Buffer.alloc(5_000_100)]) })).status, 413);
     assert.equal((await rcall('/api/c/c1/assets?kind=token&name=x.png', { method: 'POST', raw: PNG })).status, 403, 'un joueur n’envoie pas de token');
 
-    const add = await ren.request({ t: 'meme', action: 'add', meme: { kind: 'image', image: img.body.ref, top: 'QUAND LE MJ', bottom: 'DIT ROULEZ L’INITIATIVE', x: 3, y: 3, size: 4, ttl: null, name: 'chat.png' } });
-    assert.equal(add.ok, true);
-    const onTv = await tv.next(m => m.t === 'memeSet');
-    assert.equal(onTv.meme.top, 'QUAND LE MJ');
-    assert.equal((await brakka.next(m => m.t === 'memeSet')).meme.by, 'u-ren');
-    assert.equal((await ren.request({ t: 'meme', action: 'add', meme: { kind: 'image', image: 'asset:inconnu', x: 1, y: 1 } })).ok, false);
-    assert.equal((await ren.request({ t: 'meme', action: 'add', meme: { kind: 'text', text: '   ', x: 1, y: 1 } })).ok, false);
+    const pic = await add(ren, { kind: 'image', image: img.body.ref, x: 3, y: 3, size: 4, top: 'LÉGENDE', attach: 'gob' });
+    assert.equal(pic.ok, true);
+    const onTv = (await tv.next(m => m.t === 'itemSet')).item;
+    assert.deepEqual(Object.keys(onTv).sort(), ['at', 'by', 'byName', 'id', 'image', 'kind', 'size', 'x', 'y'], 'une image, sans légende ni token');
+    assert.equal((await brakka.next(m => m.t === 'itemSet')).item.by, 'u-ren');
+    assert.equal((await add(ren, { kind: 'image', image: 'asset:inconnu', x: 1, y: 1 })).ok, false);
+    assert.equal((await add(ren, { kind: 'text', text: 'lol', x: 1, y: 1 })).ok, false, 'pas de texte : seulement des images et des traits');
 
-    // Un texte collé à un token caché : refusé, le joueur ne doit pas pouvoir le deviner.
-    assert.match((await ren.request({ t: 'meme', action: 'add', meme: { kind: 'text', text: 'ici', x: 1, y: 1, attach: 'cache' } })).error, /introuvable/);
-    const txt = await brakka.request({ t: 'meme', action: 'add', meme: { kind: 'text', text: 'THIS IS FINE', x: 5, y: 5, attach: 'gob', ttl: 10 } });
-    assert.equal(txt.ok, true);
-    const set = await ren.next(m => m.t === 'memeSet' && m.meme.text === 'THIS IS FINE');
-    assert.equal(set.meme.attach, 'gob');
-    assert.ok(set.meme.expires > Date.now());
+    // Un trait : ses points, sa couleur et son épaisseur ; le reste est ramené aux choix permis.
+    const line = await add(brakka, { kind: 'stroke', points: [[1, 1], [1, 1], [2, 2.004], [3, 2]], color: '#e40712', width: 0.12 });
+    assert.equal(line.ok, true);
+    const drawn = (await ren.next(m => m.t === 'itemSet' && m.item.kind === 'stroke')).item;
+    assert.deepEqual(drawn.points, [[1, 1], [2, 2], [3, 2]]);
+    const odd = await add(brakka, { kind: 'stroke', points: [[4, 4]], color: 'javascript:alert(1)', width: 99 });
+    const oddItem = (await ren.next(m => m.t === 'itemSet' && m.item.id === odd.itemId)).item;
+    assert.equal(oddItem.color, '#e40712');
+    assert.equal(oddItem.width, 0.12);
+    assert.equal(oddItem.points.length, 2, 'un clic laisse un point visible');
+    assert.equal((await add(brakka, { kind: 'stroke', points: 'cassé' })).ok, false);
 
-    // Chacun ne touche qu'à ses memes ; le MJ, à tous.
-    assert.match((await ren.request({ t: 'meme', action: 'remove', ids: [txt.memeId] })).error, /pas à toi/);
-    assert.equal((await ren.request({ t: 'meme', action: 'update', memeId: add.memeId, patch: { x: 6, rot: 15, top: 'QUAND' } })).ok, true);
-    assert.equal((await brakka.next(m => m.t === 'memeSet' && m.meme.id === add.memeId)).meme.rot, 15);
-    assert.equal((await x.dm.request({ t: 'meme', action: 'remove', ids: [txt.memeId] })).ok, true);
-    assert.deepEqual((await ren.next(m => m.t === 'memeGone')).ids, [txt.memeId]);
+    // Chacun ne touche qu'à ce qu'il a posé, le MJ compris.
+    assert.match((await ren.request({ t: 'draw', action: 'remove', ids: [line.itemId] })).error, /pas à toi/);
+    assert.match((await x.dm.request({ t: 'draw', action: 'remove', ids: [line.itemId] })).error, /pas à toi/);
+    assert.match((await brakka.request({ t: 'draw', action: 'update', itemId: line.itemId, patch: { x: 2 } })).error, /trait/);
+    assert.equal((await ren.request({ t: 'draw', action: 'update', itemId: pic.itemId, patch: { x: 6, size: 5 } })).ok, true);
+    assert.equal((await brakka.next(m => m.t === 'itemSet' && m.item.id === pic.itemId)).item.x, 6);
+    assert.equal((await brakka.request({ t: 'draw', action: 'remove', ids: [line.itemId] })).ok, true);
+    assert.deepEqual((await ren.next(m => m.t === 'itemGone')).ids, [line.itemId]);
 
-    // Réactions : seulement celles de la liste, envoyées à tous, jamais gardées.
-    assert.equal((await ren.request({ t: 'react', emoji: '💀', x: 2, y: 2 })).ok, true);
-    assert.equal((await brakka.next(m => m.t === 'react')).r.by, 'Ren');
-    assert.equal((await tv.next(m => m.t === 'react')).r.emoji, '💀');
-    assert.equal((await ren.request({ t: 'react', emoji: '<img>', x: 2, y: 2 })).ok, false);
-
-    // La mèmothèque garde le meme posé, et se cherche par sa légende.
-    const shelf = (await rcall('/api/c/c1/map/memes/shelf?q=initiative')).body;
-    assert.equal(shelf.length, 1);
-    assert.equal(shelf[0].image, img.body.ref);
-
-    // La TV sans memes : elle reçoit une liste vide, puis plus rien.
-    await x.dm.request({ t: 'table', patch: { memesOnTv: false } });
-    assert.deepEqual((await tv.next(m => m.t === 'memes')).memes, []);
-    await ren.request({ t: 'react', emoji: '🔥', x: 2, y: 2 });
-    await brakka.next(m => m.t === 'react');
-    assert.ok(!tv.msgs.some(m => m.t === 'react'), 'la TV ne reçoit plus les réactions');
-
-    // Mode sérieux : rien pour les joueurs, et ils ne posent plus rien ; le MJ garde la liste.
-    for (const c of [ren, brakka, x.dm]) c.msgs.length = 0;
-    await x.dm.request({ t: 'table', patch: { serious: true } });
-    assert.deepEqual((await ren.next(m => m.t === 'memes')).memes, []);
-    const dmList = await x.dm.next(m => m.t === 'memes');
-    assert.equal(dmList.memes.length, 1);
-    assert.equal((await ren.next(m => m.t === 'table' && m.table.serious)).canMeme, false);
-    assert.match((await ren.request({ t: 'meme', action: 'add', meme: { kind: 'text', text: 'lol', x: 1, y: 1 } })).error, /coupé/);
+    // Tout effacer : seulement ce que ce joueur a posé sur cette carte.
+    await add(brakka, { kind: 'stroke', points: [[5, 5], [6, 6]] });
+    await ren.next(m => m.t === 'itemSet' && m.item.by === 'u-brakka');
+    assert.equal((await brakka.request({ t: 'draw', action: 'clearMine' })).ok, true);
+    const gone = await ren.next(m => m.t === 'itemGone');
+    assert.equal(gone.ids.length, 2, 'les deux traits de Brakka');
+    const left = x.s.db.db.prepare('SELECT id FROM map_overlay').all().map(r => r.id);
+    assert.deepEqual(left, [pic.itemId], 'l’image de Ren reste');
     ren.msgs.length = 0;
-    await x.dm.request({ t: 'table', patch: { serious: false } });
-    assert.equal((await ren.next(m => m.t === 'memes' && m.memes.length)).memes.length, 1);
 
-    // Un joueur privé de memes : refusé partout, et le MJ efface tout ce qu'il a posé.
+    // La TV sans images ni dessins : elle reçoit une liste vide, puis plus rien.
+    await x.dm.request({ t: 'table', patch: { onTv: false } });
+    assert.deepEqual((await tv.next(m => m.t === 'overlay')).items, []);
+    tv.msgs.length = 0;
+    await add(brakka, { kind: 'stroke', points: [[7, 7], [8, 8]] });
+    await ren.next(m => m.t === 'itemSet');
+    assert.ok(!tv.msgs.some(m => m.t === 'itemSet'), 'la TV ne reçoit plus rien');
+
+    // Un joueur privé d'images et de dessins : refusé partout ; le MJ efface ce qu'il a posé.
     await x.dm.request({ t: 'table', patch: { muted: ['u-ren', 'u-inconnu'] } });
     assert.deepEqual(x.s.app.campaigns.settings('c1').table.muted, ['u-ren'], 'seulement des membres');
-    assert.equal((await ren.next(m => m.t === 'table' && !m.canMeme)).canMeme, false);
-    assert.equal((await brakka.next(m => m.t === 'table' && !m.table.serious)).canMeme, true);
-    assert.match((await ren.request({ t: 'meme', action: 'add', meme: { kind: 'text', text: 'lol', x: 1, y: 1 } })).error, /coupé/);
-    assert.match((await ren.request({ t: 'meme', action: 'update', memeId: add.memeId, patch: { x: 2 } })).error, /coupé/);
-    assert.match((await ren.request({ t: 'react', emoji: '💀', x: 2, y: 2 })).error, /coupé/);
-    assert.equal((await rcall('/api/c/c1/assets?kind=meme&name=chat.png', { method: 'POST', raw: PNG })).status, 403);
-    assert.equal((await x.dm.request({ t: 'meme', action: 'wipe', account: 'u-ren' })).ok, true);
-    assert.deepEqual((await brakka.next(m => m.t === 'memeGone')).ids, [add.memeId]);
-    assert.equal((await brakka.request({ t: 'meme', action: 'clear' })).ok, false, 'tout effacer reste au MJ');
+    assert.equal((await ren.next(m => m.t === 'table' && !m.canDraw)).canDraw, false);
+    assert.equal((await brakka.next(m => m.t === 'table' && m.canDraw)).canDraw, true);
+    assert.match((await add(ren, { kind: 'stroke', points: [[1, 1], [2, 2]] })).error, /coupé/);
+    assert.match((await ren.request({ t: 'draw', action: 'update', itemId: pic.itemId, patch: { x: 2 } })).error, /coupé/);
+    assert.match((await ren.request({ t: 'draw', action: 'clearMine' })).error, /coupé/);
+    assert.equal((await rcall('/api/c/c1/assets?kind=paste&name=chat.png', { method: 'POST', raw: PNG })).status, 403);
+    assert.equal((await brakka.request({ t: 'draw', action: 'wipe', account: 'u-ren' })).ok, false, 'effacer un joueur reste au MJ');
+    assert.equal((await x.dm.request({ t: 'draw', action: 'wipe', account: 'u-ren' })).ok, true);
+    assert.deepEqual((await brakka.next(m => m.t === 'itemGone' && m.ids.includes(pic.itemId))).ids, [pic.itemId]);
 
-    // Tout couper pour les joueurs.
-    await x.dm.request({ t: 'table', patch: { memes: false, muted: [] } });
-    assert.equal((await brakka.next(m => m.t === 'table' && !m.canMeme)).canMeme, false);
-    assert.equal((await x.dm.request({ t: 'meme', action: 'add', meme: { kind: 'text', text: 'Le MJ a toujours le droit', x: 1, y: 1 } })).ok, true);
-    ren.close();
-    brakka.close();
-    tv.close();
+    // Tout couper pour les joueurs ; le MJ garde le droit de coller.
+    await x.dm.request({ t: 'table', patch: { draw: false, muted: [] } });
+    assert.equal((await brakka.next(m => m.t === 'table' && !m.canDraw)).canDraw, false);
+    assert.equal((await add(x.dm, { kind: 'image', image: img.body.ref, x: 1, y: 1 })).ok, true);
   } finally { await x.stop(); }
 });
 
@@ -247,19 +241,16 @@ test('routes de la table : une autre campagne a un 403, et une adresse privée n
     const bea = api(x.s.base, (await login(x.s.base, 'bea', '3333')).body.token);
     const rcall = api(x.s.base, x.ren.body.token);
     assert.equal((await bea('/api/c/c1/map/players')).status, 403);
-    assert.equal((await bea('/api/c/c1/map/memes/shelf')).status, 403);
-    assert.equal((await bea('/api/c/c1/map/memes/shelf/abc', { method: 'DELETE' })).status, 403);
-    assert.equal((await bea('/api/c/c1/map/memes/fetch', { method: 'POST', body: { url: 'https://example.com/a.png' } })).status, 403);
-    assert.equal((await bea('/api/c/c1/assets?kind=meme', { method: 'POST', raw: PNG })).status, 403);
+    assert.equal((await bea('/api/c/c1/map/overlay/fetch', { method: 'POST', body: { url: 'https://example.com/a.png' } })).status, 403);
+    assert.equal((await bea('/api/c/c1/assets?kind=paste', { method: 'POST', raw: PNG })).status, 403);
     assert.equal((await rcall('/api/c/c1/map/players')).status, 403, 'la liste des joueurs reste au MJ');
-    assert.equal((await rcall('/api/c/c1/map/memes/shelf/abc', { method: 'DELETE' })).status, 403);
 
     const players = (await x.call('/api/c/c1/map/players')).body;
     assert.deepEqual(players.map(p => p.name).sort(), ['Brakka', 'Ren']);
     assert.equal(players.find(p => p.name === 'Ren').chars[0].name, 'Ren');
 
     for (const url of [`http://127.0.0.1:${x.s.port}/icons/icon.svg`, 'http://localhost/a.png', 'http://[::1]/a.png', 'http://10.0.0.1/a.png', 'file:///etc/passwd', 'http://169.254.169.254/latest/meta-data', 'https://example.com:8443/a.png']) {
-      const r = await rcall('/api/c/c1/map/memes/fetch', { method: 'POST', body: { url } });
+      const r = await rcall('/api/c/c1/map/overlay/fetch', { method: 'POST', body: { url } });
       assert.equal(r.status, 400, url);
     }
     assert.ok(isPrivateAddress('192.168.1.10'));
@@ -267,4 +258,28 @@ test('routes de la table : une autre campagne a un 403, et une adresse privée n
     assert.ok(isPrivateAddress('fd00::1'));
     assert.ok(!isPrivateAddress('93.184.216.34'));
   } finally { await x.stop(); }
+});
+
+test('migration 8 : les images déjà posées restent, le texte, les légendes et la mèmothèque partent', async () => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const { MIGRATIONS, runMigrations } = await import('../server/migrations.js');
+  const db = new DatabaseSync(':memory:');
+  db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (id INTEGER PRIMARY KEY, name TEXT, applied_at INTEGER)');
+  runMigrations(db, MIGRATIONS.filter(m => m.id <= 7));
+  const put = db.prepare('INSERT INTO map_memes (campaign_id, scene, id, data, account, expires, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  put.run('c1', 's', 'm1', JSON.stringify({ id: 'm1', kind: 'image', image: 'asset:f1', x: 2, y: 3, size: 4, top: 'HAUT', attach: null, by: 'u-ren', byName: 'Ren', at: 1 }), 'u-ren', null, 1);
+  put.run('c1', 's', 'm2', JSON.stringify({ id: 'm2', kind: 'text', text: 'lol', x: 1, y: 1, by: 'u-ren', at: 2 }), 'u-ren', null, 2);
+  put.run('c1', 's', 'm3', JSON.stringify({ id: 'm3', kind: 'image', image: 'asset:f2', x: 1, y: 1, size: 2, attach: 't1', by: 'u-ren', at: 3 }), 'u-ren', null, 3);
+  db.prepare("INSERT INTO assets (id, campaign_id, kind, name, mime, size, sha256, file, folder) VALUES ('f1', 'c1', 'meme', 'chat.png', 'image/png', 1, 'x', 'x', 'Memes')").run();
+  db.prepare("INSERT INTO campaigns (id, name, settings) VALUES ('c1', 'Alpha', ?)").run(JSON.stringify({ edition: '2024', table: { lock: true, memes: false, memesOnTv: false, serious: true, muted: ['u-ren'] } }));
+  runMigrations(db, MIGRATIONS.filter(m => m.id === 8));
+  const rows = db.prepare('SELECT id, data FROM map_overlay').all();
+  assert.deepEqual(rows.map(r => r.id), ['m1']);
+  assert.deepEqual(JSON.parse(rows[0].data), { id: 'm1', kind: 'image', image: 'asset:f1', x: 2, y: 3, size: 4, by: 'u-ren', byName: 'Ren', at: 1 });
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map(r => r.name);
+  assert.ok(!tables.includes('map_memes') && !tables.includes('meme_shelf'));
+  assert.deepEqual({ ...db.prepare("SELECT kind, folder FROM assets WHERE id = 'f1'").get() }, { kind: 'paste', folder: 'Images collées' });
+  const settings = JSON.parse(db.prepare("SELECT settings FROM campaigns WHERE id = 'c1'").get().settings);
+  assert.deepEqual(settings, { edition: '2024', table: { lock: true, blockTokens: false, draw: false, muted: ['u-ren'], onTv: false } });
+  db.close();
 });

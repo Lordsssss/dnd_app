@@ -67,12 +67,12 @@ test('vue joueur par l’API : les routes répondent comme au joueur, et rien ne
     const dm = api(x.s.base, x.mj);
     assert.equal((await dm('/api/c/c1/map/players')).status, 200);
     assert.equal((await dm('/api/c/c1/map/players', { headers: as('u-ren') })).status, 403, 'une route du MJ refuse la vue joueur');
-    assert.equal((await dm('/api/c/c1/map/memes/shelf', { headers: as('u-ren') })).status, 200, 'une route de joueur répond');
+    assert.equal((await dm('/api/c/c1/monde', { headers: as('u-ren') })).status !== 403, true, 'une route de joueur répond');
     const up = await dm('/api/c/c1/assets?kind=portrait&name=p.png', { method: 'POST', raw: PNG, headers: as('u-ren') });
     assert.equal(up.status, 403);
     assert.match(up.body.error, /lecture seule/);
-    assert.equal((await dm('/api/c/c1/map/memes/shelf', { headers: as('u-bea') })).status, 403);
-    assert.equal((await api(x.s.base, x.ren)('/api/c/c1/map/memes/shelf', { headers: as('u-brakka') })).status, 403, 'un joueur ne regarde pas par les yeux d’un autre');
+    assert.equal((await dm('/api/c/c1/monde', { headers: as('u-bea') })).status, 403);
+    assert.equal((await api(x.s.base, x.ren)('/api/c/c1/monde', { headers: as('u-brakka') })).status, 403, 'un joueur ne regarde pas par les yeux d’un autre');
   } finally { await x.stop(); }
 });
 
@@ -101,8 +101,8 @@ test('vue joueur de la carte : les tokens du joueur regardé, sans rien déplace
 
     const move = await pv.request({ t: 'op', scene, op: { type: 'token.move', moves: [{ id: 'pr', x: 4.5, y: 4.5 }] } });
     assert.match(move.error, /lecture seule/);
-    assert.match((await pv.request({ t: 'meme', action: 'add', meme: { kind: 'text', text: 'lol', x: 1, y: 1 } })).error, /lecture seule/);
-    assert.match((await pv.request({ t: 'react', emoji: '💀', x: 1, y: 1 })).error, /lecture seule/);
+    assert.match((await pv.request({ t: 'draw', action: 'add', item: { kind: 'stroke', points: [[1, 1], [2, 2]] } })).error, /lecture seule/);
+    assert.match((await pv.request({ t: 'draw', action: 'clearMine' })).error, /lecture seule/);
 
     const bad = x.open(x.s.port, '/ws/map', { t: 'hello', token: x.ren, campaign: 'c1', role: 'player', as: 'u-brakka' });
     assert.equal((await bad.next(m => m.t === 'denied' || m.t === 'welcome')).t, 'denied');

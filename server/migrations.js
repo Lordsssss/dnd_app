@@ -271,6 +271,52 @@ export const MIGRATIONS = [
       `);
     },
   },
+  {
+    id: 8,
+    name: 'Calque de la table : images collées et traits ; sans légendes, réactions ni mèmothèque',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS map_overlay (
+          campaign_id TEXT NOT NULL, scene TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL,
+          account TEXT, created_at INTEGER NOT NULL,
+          PRIMARY KEY (campaign_id, scene, id)
+        );
+      `);
+      // Les images déjà posées restent, à leur place ; le texte, les légendes, ce qui était collé
+      // à un token ou devait disparaître seul ne passent pas.
+      if (hasTable(db, 'map_memes')) {
+        db.exec(`
+          INSERT OR IGNORE INTO map_overlay (campaign_id, scene, id, data, account, created_at)
+          SELECT campaign_id, scene, id, json_object(
+              'id', json_extract(data, '$.id'), 'kind', 'image', 'image', json_extract(data, '$.image'),
+              'x', json_extract(data, '$.x'), 'y', json_extract(data, '$.y'), 'size', json_extract(data, '$.size'),
+              'by', json_extract(data, '$.by'), 'byName', json_extract(data, '$.byName'), 'at', json_extract(data, '$.at')),
+            account, created_at
+          FROM map_memes
+          WHERE json_extract(data, '$.kind') = 'image' AND json_extract(data, '$.attach') IS NULL AND expires IS NULL;
+          DROP TABLE map_memes;
+        `);
+      }
+      db.exec('DROP TABLE IF EXISTS meme_shelf');
+      // Les réglages de la table prennent leurs nouveaux noms ; le mode sérieux disparaît.
+      if (hasTable(db, 'campaigns')) {
+        for (const r of db.prepare('SELECT id, settings FROM campaigns').all()) {
+          let s;
+          try { s = JSON.parse(r.settings || '{}'); } catch { continue; }
+          const t = s.table;
+          if (!t || typeof t !== 'object') continue;
+          s.table = {
+            lock: !!t.lock, blockTokens: !!t.blockTokens, draw: t.draw ?? t.memes ?? true,
+            muted: Array.isArray(t.muted) ? t.muted : [], onTv: t.onTv ?? t.memesOnTv ?? true,
+          };
+          db.prepare('UPDATE campaigns SET settings = ? WHERE id = ?').run(JSON.stringify(s), r.id);
+        }
+      }
+      if (hasTable(db, 'assets')) {
+        db.exec(`UPDATE assets SET kind = 'paste', folder = CASE WHEN folder = 'Memes' THEN 'Images collées' ELSE folder END WHERE kind = 'meme'`);
+      }
+    },
+  },
 ];
 
 export function pendingMigrations(db) {

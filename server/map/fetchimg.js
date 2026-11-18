@@ -1,4 +1,4 @@
-// Une image tirée d'une adresse collée par un joueur, pour un meme. Le serveur va la chercher
+// Une image tirée d'une adresse collée sur la carte par un joueur. Le serveur va la chercher
 // lui-même : seulement en http(s) sur les ports usuels, jamais vers une adresse privée ou locale
 // (vérifié à chaque connexion, redirections comprises), avec une taille et un délai bornés.
 import http from 'node:http';
@@ -65,12 +65,12 @@ function getOnce(u, maxBytes, timeoutMs) {
         return;
       }
       if (res.statusCode !== 200) { res.resume(); reject(new HttpError(400, 'Image introuvable à cette adresse')); return; }
-      if (Number(res.headers['content-length']) > maxBytes) { res.destroy(); reject(new HttpError(413, 'Image trop lourde pour un meme (5 Mo au plus)')); return; }
+      if (Number(res.headers['content-length']) > maxBytes) { res.destroy(); reject(new HttpError(413, 'Image trop lourde (5 Mo au plus)')); return; }
       const parts = [];
       let size = 0;
       res.on('data', c => {
         size += c.length;
-        if (size > maxBytes) { res.destroy(); reject(new HttpError(413, 'Image trop lourde pour un meme (5 Mo au plus)')); return; }
+        if (size > maxBytes) { res.destroy(); reject(new HttpError(413, 'Image trop lourde (5 Mo au plus)')); return; }
         parts.push(c);
       });
       res.on('end', () => resolve({ buffer: Buffer.concat(parts) }));

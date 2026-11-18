@@ -1,6 +1,6 @@
 // Carte de table d'une campagne : routes HTTP et canal temps réel. Le MJ et les co-MJ y ont
 // tous les droits ; la TV est une fenêtre du même compte. Un joueur s'y connecte depuis son
-// onglet « Carte » : il voit ce que voit la TV, déplace ses tokens et pose des memes.
+// onglet « Carte » : il voit ce que voit la TV, déplace ses tokens, colle des images et dessine.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,8 +12,9 @@ import { forPlayer, forTv, indexFor } from '../../shared/map/view.js';
 import { lineOfSight } from '../../shared/map/vision.js';
 import { sceneBounds } from '../../shared/map/scene.js';
 import { isDmRole } from '../campaigns.js';
-import { canMeme, patchTable, rateLimiter, tableOf } from './table.js';
-import { createMemeStore } from './memes.js';
+import { canDraw, patchTable, rateLimiter, tableOf } from './table.js';
+import { createOverlayStore } from './overlay.js';
+import { PASTE_FOLDER } from '../assets.js';
 import { fetchImage } from './fetchimg.js';
 import { SceneStore } from './store.js';
 import { TokenCatalog, assetItems } from './tokens.js';
@@ -26,9 +27,9 @@ export function createMapServer({ db, engine, campaigns, assets, library, cfg, a
   const stores = new Map();
   const clients = new Set();
   const damage = createDamageLog(db.db);
-  const memes = createMemeStore(db.db);
-  const memeLimit = rateLimiter(10, 60_000);
-  const reactLimit = rateLimiter(40, 60_000);
+  const overlay = createOverlayStore(db.db);
+  const imageLimit = rateLimiter(10, 60_000);
+  const strokeLimit = rateLimiter(60, 60_000);
   const fetchLimit = rateLimiter(10, 60_000);
 
   function storeOf(cid) {
@@ -156,7 +157,7 @@ export function createMapServer({ db, engine, campaigns, assets, library, cfg, a
     const a = dm(ctx);
     const cid = ctx.params.cid;
     storeOf(cid).remove(ctx.params.id);
-    memes.clearScene(cid, ctx.params.id);
+    overlay.clearScene(cid, ctx.params.id);
     if (campaigns.settings(cid).tvScene === ctx.params.id) campaigns.setInternal(cid, 'tvScene', null);
     audit?.log({ kind: 'map', campaign: cid, action: 'Carte supprimée', account: a.name, seat: 'MJ', detail: ctx.params.id });
     return { ok: true };
@@ -167,7 +168,8 @@ export function createMapServer({ db, engine, campaigns, assets, library, cfg, a
     return autoWalls(ctx.params.cid, ctx.params.id, b);
   });
 
-  // Les joueurs de la campagne et leurs fiches : pour donner un token à un joueur, ou lui couper les memes.
+  // Les joueurs de la campagne et leurs fiches : pour donner un token à un joueur, ou lui couper
+  // les images et les dessins.
   router.get('/api/c/:cid/map/players', ctx => {
     dm(ctx);
     const cid = ctx.params.cid;
@@ -177,27 +179,17 @@ export function createMapServer({ db, engine, campaigns, assets, library, cfg, a
     }));
   });
 
-  // La mèmothèque : chaque meme déjà posé dans la campagne, les plus utilisés d'abord.
-  router.get('/api/c/:cid/map/memes/shelf', ctx => {
-    guard.member(ctx);
-    return memes.shelf(ctx.params.cid, ctx.query('q'));
-  });
-  router.delete('/api/c/:cid/map/memes/shelf/:key', ctx => {
-    dm(ctx);
-    memes.shelfRemove(ctx.params.cid, ctx.params.key);
-    return { ok: true };
-  });
-  // Une image collée par son adresse : le serveur va la chercher et la range avec les memes.
-  router.post('/api/c/:cid/map/memes/fetch', async ctx => {
+  // Une image collée par son adresse : le serveur va la chercher et la range avec les images collées.
+  router.post('/api/c/:cid/map/overlay/fetch', async ctx => {
     const m = guard.member(ctx);
     const cid = ctx.params.cid;
-    if (!canMeme(tableOf(campaigns, cid), m.id, m.role)) throw new HttpError(403, 'Le MJ a coupé tes memes');
-    if (!fetchLimit(m.id || 'api')) throw new HttpError(429, 'Doucement : 10 memes par minute au plus');
+    if (!canDraw(tableOf(campaigns, cid), m.id, m.role)) throw new HttpError(403, 'Le MJ a coupé tes images et tes dessins');
+    if (!fetchLimit(m.id || 'api')) throw new HttpError(429, 'Doucement : 10 images par minute au plus');
     const b = await ctx.body();
     const buffer = await fetchImage(b.url);
-    let name = 'meme';
-    try { name = decodeURIComponent(new URL(String(b.url)).pathname.split('/').pop() || 'meme'); } catch { /* nom par défaut */ }
-    const a = assets.save({ campaign: cid, kind: 'meme', name, buffer, by: m.id, folder: 'Memes' });
+    let name = 'image';
+    try { name = decodeURIComponent(new URL(String(b.url)).pathname.split('/').pop() || 'image'); } catch { /* nom par défaut */ }
+    const a = assets.save({ campaign: cid, kind: 'paste', name, buffer, by: m.id, folder: PASTE_FOLDER });
     return { ref: `asset:${a.id}`, name: a.name, width: a.width, height: a.height };
   });
 
@@ -283,7 +275,7 @@ export function createMapServer({ db, engine, campaigns, assets, library, cfg, a
     const msg = sceneMessage(c.campaign, id);
     c.scene = id;
     send(c, msg);
-    sendMemes(c);
+    sendOverlay(c);
   }
 
   // La TV et les onglets des joueurs suivent la carte envoyée sur la TV.
@@ -298,10 +290,10 @@ export function createMapServer({ db, engine, campaigns, assets, library, cfg, a
   function tableMessage(c) {
     const table = tableOf(campaigns, c.campaign);
     const { muted, ...pub } = table;
-    return { t: 'table', table: c.role === 'dm' ? table : pub, canMeme: canMeme(table, c.accountId, c.accountRole) };
+    return { t: 'table', table: c.role === 'dm' ? table : pub, canDraw: canDraw(table, c.accountId, c.accountRole) };
   }
   function broadcastTable(cid) {
-    for (const c of clients) if (c.authed && c.campaign === cid) { send(c, tableMessage(c)); sendMemes(c); }
+    for (const c of clients) if (c.authed && c.campaign === cid) { send(c, tableMessage(c)); sendOverlay(c); }
   }
 
   // Un déplacement demandé par un joueur : ses tokens seulement, visibles, dans la carte, sans
@@ -330,124 +322,79 @@ export function createMapServer({ db, engine, campaigns, assets, library, cfg, a
     publish(cid, c.scene, doc.apply({ type: 'token.move', moves: moves.map(m => ({ id: m.id, x: m.x, y: m.y })) }));
   }
 
-  // ------------------------------------------------------------ Memes
+  // ------------------------------------------------------------ Images collées et traits
 
-  // Le MJ les reçoit toujours (son écran les cache en mode sérieux) ; la TV, si le MJ l'a permis.
-  function seesMemes(c, table = tableOf(campaigns, c.campaign)) {
-    if (c.role === 'dm') return true;
-    if (table.serious) return false;
-    return c.role === 'tv' ? table.memesOnTv : true;
+  // Le MJ et les joueurs les voient ; la TV, si le MJ l'a permis.
+  function seesOverlay(c, table = tableOf(campaigns, c.campaign)) {
+    return c.role === 'tv' ? table.onTv : true;
   }
-  function sendMemes(c) {
+  function sendOverlay(c) {
     if (!c.scene) return;
-    send(c, { t: 'memes', scene: c.scene, memes: seesMemes(c) ? memes.list(c.campaign, c.scene) : [] });
+    send(c, { t: 'overlay', scene: c.scene, items: seesOverlay(c) ? overlay.list(c.campaign, c.scene) : [] });
   }
-  function memeEvent(cid, scene, msg) {
+  function overlayEvent(cid, scene, msg) {
     const table = tableOf(campaigns, cid);
-    for (const c of clients) if (c.authed && c.campaign === cid && c.scene === scene && seesMemes(c, table)) send(c, msg);
+    for (const c of clients) if (c.authed && c.campaign === cid && c.scene === scene && seesOverlay(c, table)) send(c, msg);
   }
-  function memeGone(cid, scene, ids) {
-    if (ids.length) memeEvent(cid, scene, { t: 'memeGone', scene, ids });
-  }
-
-  const expiryTimers = new Map();
-  function scheduleExpiry(cid, scene, id, expires) {
-    const key = `${cid}|${scene}|${id}`;
-    clearTimeout(expiryTimers.get(key));
-    const timer = setTimeout(() => {
-      expiryTimers.delete(key);
-      if (!memes.get(cid, scene, id)) return;
-      memes.remove(cid, scene, id);
-      memeGone(cid, scene, [id]);
-    }, Math.max(0, expires - Date.now()));
-    timer.unref?.();
-    expiryTimers.set(key, timer);
-  }
-  for (const m of memes.expiring()) scheduleExpiry(m.campaign, m.scene, m.id, m.expires);
-
-  function memeImage(cid, ref) {
-    try { return checkImageRef(cid, ref); } catch { throw new SceneError('Image introuvable'); }
-  }
-  function memeTarget(doc, id) {
-    if (!id) return null;
-    const t = doc.tokens.find(x => x.id === id);
-    if (!t || t.hidden) throw new SceneError('Token introuvable');
-    return t.id;
+  function overlayGone(cid, scene, ids) {
+    if (ids.length) overlayEvent(cid, scene, { t: 'itemGone', scene, ids });
   }
 
-  function memeAction(c, msg) {
+  // Chacun, le MJ compris, ne déplace et n'efface que ce qu'il a posé. Le MJ efface tout ce
+  // qu'un joueur a posé depuis le panneau Joueurs (`wipe`).
+  function drawAction(c, msg) {
     const cid = c.campaign;
     const scene = c.scene;
     if (!scene) throw new SceneError('Aucune carte ouverte');
-    const table = tableOf(campaigns, cid);
-    const allowed = canMeme(table, c.accountId, c.accountRole);
-    const dm = c.isDm && c.role !== 'tv';
-    const doc = () => storeOf(cid).open(scene).doc;
-    const mustOwn = m => {
-      if (!m) throw new SceneError('Ce meme n\'existe plus');
-      if (dm) return;
-      if (!allowed) throw new SceneError('Le MJ a coupé tes memes');
-      if (m.by !== c.accountId) throw new SceneError('Ce meme n\'est pas à toi');
+    const allowed = canDraw(tableOf(campaigns, cid), c.accountId, c.accountRole);
+    const dm = c.isDm && c.role === 'dm';
+    const mustOwn = it => {
+      if (!it) throw new SceneError('Cet élément n\'existe plus');
+      if (!allowed) throw new SceneError('Le MJ a coupé tes images et tes dessins');
+      if (it.by !== c.accountId) throw new SceneError('Ce n\'est pas à toi');
     };
     switch (msg.action) {
       case 'add': {
-        if (!allowed) throw new SceneError('Le MJ a coupé tes memes');
-        if (!dm && !memeLimit(c.accountId)) throw new SceneError('Doucement : 10 memes par minute au plus');
-        const raw = { ...(msg.meme || {}) };
-        if (raw.kind !== 'text') raw.image = memeImage(cid, raw.image);
-        raw.attach = memeTarget(doc(), raw.attach);
-        const meme = memes.add(cid, scene, raw, { by: c.accountId, byName: c.accountName });
-        if (meme.expires) scheduleExpiry(cid, scene, meme.id, meme.expires);
-        memeEvent(cid, scene, { t: 'memeSet', scene, meme });
-        audit?.log({ kind: 'map', campaign: cid, action: 'Meme posé', account: c.accountName, seat: dm ? 'MJ' : 'Joueur', detail: meme.text || [meme.top, meme.bottom].filter(Boolean).join(' / ') || raw.name || '', mergeKey: 'meme' });
-        return { memeId: meme.id };
+        if (!allowed) throw new SceneError('Le MJ a coupé tes images et tes dessins');
+        const raw = { ...(msg.item || {}) };
+        const stroke = raw.kind === 'stroke';
+        if (!dm && !(stroke ? strokeLimit : imageLimit)(c.accountId)) throw new SceneError(stroke ? 'Doucement : 60 traits par minute au plus' : 'Doucement : 10 images par minute au plus');
+        if (!stroke) {
+          try { raw.image = checkImageRef(cid, raw.image); } catch { throw new SceneError('Image introuvable'); }
+        }
+        const item = overlay.add(cid, scene, raw, { by: c.accountId, byName: c.accountName });
+        overlayEvent(cid, scene, { t: 'itemSet', scene, item });
+        return { itemId: item.id };
       }
       case 'update': {
-        mustOwn(memes.get(cid, scene, String(msg.memeId || '')));
-        const patch = { ...(msg.patch || {}) };
-        if ('attach' in patch) patch.attach = memeTarget(doc(), patch.attach);
-        const meme = memes.update(cid, scene, String(msg.memeId), patch);
-        memeEvent(cid, scene, { t: 'memeSet', scene, meme });
+        mustOwn(overlay.get(cid, scene, String(msg.itemId || '')));
+        const item = overlay.update(cid, scene, String(msg.itemId), msg.patch || {});
+        overlayEvent(cid, scene, { t: 'itemSet', scene, item });
         return {};
       }
       case 'remove': {
-        const ids = (Array.isArray(msg.ids) ? msg.ids : [msg.memeId]).map(String).slice(0, 200);
-        for (const id of ids) mustOwn(memes.get(cid, scene, id));
-        for (const id of ids) memes.remove(cid, scene, id);
-        memeGone(cid, scene, ids);
+        const ids = (Array.isArray(msg.ids) ? msg.ids : [msg.itemId]).map(String).slice(0, 400);
+        for (const id of ids) mustOwn(overlay.get(cid, scene, id));
+        for (const id of ids) overlay.remove(cid, scene, id);
+        overlayGone(cid, scene, ids);
         return {};
       }
-      case 'clear': {
-        if (!dm) throw new SceneError('Réservé au MJ de la campagne');
-        memes.clearScene(cid, scene);
-        for (const x of clients) if (x.authed && x.campaign === cid && x.scene === scene) sendMemes(x);
+      // Tout effacer : tout ce que ce compte a posé sur cette carte, rien d'autre.
+      case 'clearMine': {
+        if (!allowed) throw new SceneError('Le MJ a coupé tes images et tes dessins');
+        overlayGone(cid, scene, overlay.removeMine(cid, scene, c.accountId));
         return {};
       }
-      // Tous les memes d'un joueur, sur toutes les cartes de la campagne.
       case 'wipe': {
         if (!dm) throw new SceneError('Réservé au MJ de la campagne');
-        for (const [sid, ids] of Object.entries(memes.ofAccount(cid, String(msg.account || '')))) {
-          for (const id of ids) memes.remove(cid, sid, id);
-          memeGone(cid, sid, ids);
+        for (const [sid, ids] of Object.entries(overlay.ofAccount(cid, String(msg.account || '')))) {
+          for (const id of ids) overlay.remove(cid, sid, id);
+          overlayGone(cid, sid, ids);
         }
         return {};
       }
       default: throw new SceneError('Message inconnu');
     }
-  }
-
-  // Réactions : un emoji ou un repère qui s'envole et disparaît, jamais gardé.
-  const REACTIONS = new Set(['💀', '😂', '🔥', '❗', '👀', '🎲', '❤️', '😱', '👏', '🤡', 'ping']);
-  function react(c, msg) {
-    const cid = c.campaign;
-    if (!c.scene) throw new SceneError('Aucune carte ouverte');
-    const dm = c.isDm && c.role !== 'tv';
-    if (!canMeme(tableOf(campaigns, cid), c.accountId, c.accountRole)) throw new SceneError('Le MJ a coupé tes memes');
-    if (!dm && !reactLimit(c.accountId)) throw new SceneError('Doucement avec les réactions');
-    if (!REACTIONS.has(msg.emoji)) throw new SceneError('Réaction inconnue');
-    if (!Number.isFinite(msg.x) || !Number.isFinite(msg.y)) throw new SceneError('Position invalide');
-    const token = msg.token ? memeTarget(storeOf(cid).open(c.scene).doc, String(msg.token)) : null;
-    memeEvent(cid, c.scene, { t: 'react', scene: c.scene, r: { id: `r${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`, emoji: msg.emoji, x: msg.x, y: msg.y, token, by: c.accountName } });
   }
 
   wss.on('connection', ws => {
@@ -486,18 +433,16 @@ export function createMapServer({ db, engine, campaigns, assets, library, cfg, a
         }
         if (!c.authed) return reply(false, { error: 'Non connecté' });
         const cid = c.campaign;
-        // Un joueur ne fait que trois choses : déplacer ses tokens, poser des memes, réagir.
+        // Un joueur ne fait que deux choses : déplacer ses tokens, coller des images et dessiner.
         if (c.role === 'player') {
-          if (c.preview && ['op', 'meme', 'react'].includes(msg.t)) return reply(false, { error: 'Vue joueur : lecture seule' });
+          if (c.preview && ['op', 'draw'].includes(msg.t)) return reply(false, { error: 'Vue joueur : lecture seule' });
           if (msg.t === 'op') { playerMove(c, msg); return reply(true); }
-          if (msg.t === 'meme') return reply(true, memeAction(c, msg));
-          if (msg.t === 'react') { react(c, msg); return reply(true); }
+          if (msg.t === 'draw') return reply(true, drawAction(c, msg));
           return reply(false, { error: 'Réservé au MJ de la campagne' });
         }
         switch (msg.t) {
           case 'open': openFor(c, msg.scene); return reply(true);
-          case 'meme': return reply(true, memeAction(c, msg));
-          case 'react': react(c, msg); return reply(true);
+          case 'draw': return reply(true, drawAction(c, msg));
           case 'table': {
             if (c.role !== 'dm') return reply(false, { error: 'Réservé au MJ de la campagne' });
             patchTable(campaigns, cid, msg.patch || {});
@@ -574,7 +519,6 @@ export function createMapServer({ db, engine, campaigns, assets, library, cfg, a
     flush: () => { for (const s of stores.values()) s.flush(); },
     close: () => {
       clearInterval(heartbeat);
-      for (const t of expiryTimers.values()) clearTimeout(t);
       for (const c of clients) c.ws.terminate();
       for (const s of stores.values()) s.close();
     },

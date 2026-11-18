@@ -1,8 +1,8 @@
 // Contenu d'une campagne : images envoyées, bestiaire, carte du monde.
 import { HttpError, send } from '../http.js';
-import { ASSET_KINDS, MEME_MAX_BYTES, cleanFolder } from '../assets.js';
+import { ASSET_KINDS, PASTE_FOLDER, PASTE_MAX_BYTES, cleanFolder } from '../assets.js';
 import { isDmRole } from '../campaigns.js';
-import { canMeme, rateLimiter, tableOf } from '../map/table.js';
+import { canDraw, rateLimiter, tableOf } from '../map/table.js';
 import { normalizeBeast, monsterToBeast } from '../../shared/bestiary.js';
 import crypto from 'node:crypto';
 
@@ -12,27 +12,27 @@ export function registerContent(S) {
 
   // ------------------------------------------------------------ Images
 
-  // Envoi brut : le corps de la requête est l'image. ?kind=map|token|portrait|world|image|meme&name=…
-  // Un joueur peut envoyer le portrait de son personnage, et un meme si le MJ ne le lui a pas
-  // coupé ; le reste est l'affaire du MJ.
-  const memeUploads = rateLimiter(10, 60_000);
+  // Envoi brut : le corps de la requête est l'image. ?kind=map|token|portrait|world|image|paste&name=…
+  // Un joueur peut envoyer le portrait de son personnage, et une image à coller sur la carte si
+  // le MJ ne le lui a pas coupé ; le reste est l'affaire du MJ.
+  const pasteUploads = rateLimiter(10, 60_000);
   router.post('/api/c/:cid/assets', async ctx => {
     const m = guard.member(ctx);
     const cid = ctx.params.cid;
     const kind = ASSET_KINDS.includes(ctx.query('kind')) ? ctx.query('kind') : 'image';
-    if (kind === 'meme') {
-      if (!canMeme(tableOf(campaigns, cid), m.id, m.role)) throw new HttpError(403, 'Le MJ a coupé tes memes');
-      if (!isDmRole(m.role) && !memeUploads(m.id)) throw new HttpError(429, 'Doucement : 10 memes par minute au plus');
+    if (kind === 'paste') {
+      if (!canDraw(tableOf(campaigns, cid), m.id, m.role)) throw new HttpError(403, 'Le MJ a coupé tes images et tes dessins');
+      if (!isDmRole(m.role) && !pasteUploads(m.id)) throw new HttpError(429, 'Doucement : 10 images par minute au plus');
       // Refusé sur la taille annoncée. La requête est vidée sans être gardée, pour que le
       // navigateur finisse son envoi et lise la réponse ; au-delà de 40 Mo, la connexion est coupée.
       const declared = Number(ctx.req.headers['content-length']);
-      if (declared > MEME_MAX_BYTES) {
+      if (declared > PASTE_MAX_BYTES) {
         if (declared <= 40_000_000) ctx.req.resume(); else ctx.req.destroy();
-        throw new HttpError(413, 'Image trop lourde pour un meme (5 Mo au plus)');
+        throw new HttpError(413, 'Image trop lourde (5 Mo au plus)');
       }
-      const buffer = await ctx.raw(MEME_MAX_BYTES + 1);
-      if (buffer.length > MEME_MAX_BYTES) throw new HttpError(413, 'Image trop lourde pour un meme (5 Mo au plus)');
-      const a = assets.save({ campaign: cid, kind, name: ctx.query('name') || 'meme', buffer, by: m.id, folder: 'Memes' });
+      const buffer = await ctx.raw(PASTE_MAX_BYTES + 1);
+      if (buffer.length > PASTE_MAX_BYTES) throw new HttpError(413, 'Image trop lourde (5 Mo au plus)');
+      const a = assets.save({ campaign: cid, kind, name: ctx.query('name') || 'image', buffer, by: m.id, folder: PASTE_FOLDER });
       return { ref: `asset:${a.id}`, name: a.name, width: a.width, height: a.height };
     }
     if (!isDmRole(m.role) && kind !== 'portrait') throw new HttpError(403, 'Réservé au MJ de la campagne');
