@@ -15,7 +15,7 @@ import { hashPin } from '../server/accounts.js';
 
 export const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452000000400000003008060000000000000000', 'hex');
 
-export async function start({ signup = 'invite', library = null, secretDeathSaves = true } = {}) {
+export async function start({ signup = 'invite', library = null, secretDeathSaves = true, data5e = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dnd-test-'));
   const db = openDb(path.join(dir, 'f.sqlite'));
   const acc = (id, login, name, secret, extra = {}) => db.putAccount({ id, login, name, pinHash: hashPin(secret), mustChange: false, secretKind: 'pin', ...extra });
@@ -37,7 +37,7 @@ export async function start({ signup = 'invite', library = null, secretDeathSave
   const b = engine.createCharacter(blankCharacter({ name: 'Brakka', className: 'Warlock', level: 5 }), { campaign: 'c1', owner: 'u-brakka' });
   const x = engine.createCharacter(blankCharacter({ name: 'Ren-Beta', className: 'Fighter', level: 2 }), { campaign: 'c2', owner: 'u-ren' });
   const cfg = { ...DEFAULTS, port: 0, dataDir: path.join(dir, 'data'), backupDir: path.join(dir, 'bk'), signup, libraryDir: library, trustProxy: false };
-  const app = createApp({ engine, db, cfg, data5e: new FiveETools(path.join(dir, 'none')).load() });
+  const app = createApp({ engine, db, cfg, data5e: data5e || new FiveETools(path.join(dir, 'none')).load() });
   await new Promise(r => app.server.listen(0, '127.0.0.1', r));
   const port = app.server.address().port;
   const base = `http://127.0.0.1:${port}`;

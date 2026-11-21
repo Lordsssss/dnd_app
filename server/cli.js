@@ -62,7 +62,8 @@ async function main() {
     const dir = resolveFromApp(cfg.fiveEToolsDir);
     console.log(`Téléchargement des données 5etools vers ${dir}…`);
     const r = await fetch5eTools(dir);
-    console.log(`Terminé : ${r.downloaded} fichier(s) téléchargé(s), ${r.unchanged ?? 0} inchangé(s).`);
+    console.log(`Terminé : ${r.downloaded} fichier(s) téléchargé(s), ${r.unchanged} inchangé(s), ${r.partnered} fichier(s) de livres partenaires.`);
+    if (r.partneredError) console.warn(`Livres partenaires non mis à jour : ${r.partneredError}`);
     return;
   }
 

@@ -33,7 +33,7 @@ Node.js 22.13 or newer, git, Caddy for HTTPS. Python 3 with Pillow, numpy and sc
      "fiveEToolsDir": "/home/<user>/dnd-table-staging-data/5etools", "libraryDir": "/home/<user>/dnd-table-staging-data/library" }
    ```
 
-   `npm run 5etools` downloads the 5etools data into `fiveEToolsDir`.
+   `npm run 5etools` downloads the 5etools data into `fiveEToolsDir`: the `data/` folder of the 5etools mirror, plus the partnered books (Kobold Press, Ghostfire Gaming…) that 5e.tools takes from its homebrew repository, kept in `partnered/`. Run it again to update; only changed files are fetched.
 
 3. **The services and their HTTPS sites**, once each, with sudo:
 

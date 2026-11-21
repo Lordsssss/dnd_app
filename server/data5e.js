@@ -1,11 +1,11 @@
-// Chargement des données JSON de 5etools (dossier .dnd-sheet/5etools/, copie de data/).
+// Chargement des données JSON de 5etools (copie de data/, plus les livres partenaires dans partnered/).
 // Tout est chargé au démarrage, sauf le texte des livres et aventures, lu à la demande.
 // `npm run 5etools` met le dossier à jour (voir fetch5e.js).
 import fs from 'node:fs';
 import path from 'node:path';
 import { SCHOOLS } from '../shared/rules.js';
 import { modernSubclass } from '../shared/classes.js';
-import { readDownloadInfo } from './fetch5e.js';
+import { readDownloadInfo, PARTNERED_DIR } from './fetch5e.js';
 
 // Fichiers d'outillage du site 5etools : rien à afficher pour une table.
 const SKIP_FILE = /^(foundry-|makebrew|makecards|converter|renderdemo|changelog|encounterbuilder|msbcr|monsterfeatures|names|life|loot|homecrafts|fluff-homecrafts|encounters|gendata-maps|gendata-nav|gendata-subclass|gendata-tag|bookref-)/;
@@ -48,14 +48,19 @@ const FEAT_CATEGORIES = {
 const ABIL = { str: 'STR', dex: 'DEX', con: 'CON', int: 'INT', wis: 'WIS', cha: 'CHA' };
 const SIZES = { T: 'Tiny', S: 'Small', M: 'Medium', L: 'Large', H: 'Huge', G: 'Gargantuan', V: 'Varies' };
 
-function walk(dir, out = [], depth = 0) {
+// Les dossiers adventure/ et book/ de data/ sont lus à la demande. Dans partnered/, un fichier
+// d'aventure ou de livre porte aussi des sorts, des objets, des créatures : il est lu au démarrage.
+function walk(dir, out = [], depth = 0, partnered = false) {
   if (depth > 4) return out;
   let ents;
   try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
   for (const e of ents) {
     const p = path.join(dir, e.name);
-    if (e.isDirectory()) { if (!LAZY_DIRS.has(e.name) && !['img', 'homebrew'].includes(e.name)) walk(p, out, depth + 1); }
-    else if (e.name.endsWith('.json') && !e.name.startsWith('_')) out.push(p);
+    if (e.isDirectory()) {
+      if (partnered) walk(p, out, depth + 1, true);
+      else if (depth === 0 && e.name === PARTNERED_DIR) walk(p, out, depth + 1, true);
+      else if (!LAZY_DIRS.has(e.name) && !['img', 'homebrew'].includes(e.name)) walk(p, out, depth + 1);
+    } else if (e.name.endsWith('.json') && !e.name.startsWith('_') && (partnered || !SKIP_FILE.test(e.name))) out.push({ file: p, partnered });
   }
   return out;
 }
@@ -282,6 +287,8 @@ export class FiveETools {
     this.books = [];                // index des livres et aventures (books.json, adventures.json)
     this.bookCache = new Map();
     this.headings = null;           // index des titres de section, construit en tâche de fond
+    this.partnered = new Map();     // source partenaire (minuscules) → { json, abbreviation, full }
+    this.alias = new Map();         // abréviation partenaire (NWB) → code de la source (NorthlandsWorldbook)
     this.files = 0;
     this.error = null;
     this._spellIndex = null; this._itemIndex = null; this._search = null; this._featIndex = null;
@@ -298,26 +305,44 @@ export class FiveETools {
     return this.cat.get(kind);
   }
 
+  // Les sources préférées d'abord, puis les livres officiels, puis les livres partenaires.
   rank(source) {
     const i = this.preferred.indexOf(String(source).toUpperCase());
-    return i < 0 ? 100 : i;
+    return i >= 0 ? i : this.partnered.has(low(source)) ? 200 : 100;
+  }
+
+  // Le code d'une source partenaire donnée par son abréviation (« NWB »), sinon le code tel quel.
+  sourceCode(source) {
+    return this.alias.get(low(source)) || source;
+  }
+
+  // Les sources d'un fichier partenaire, lues dans son _meta.
+  addPartneredSources(meta) {
+    for (const src of meta?.sources || []) {
+      if (!src?.json) continue;
+      this.partnered.set(low(src.json), { json: src.json, abbreviation: src.abbreviation || '', full: src.full || '' });
+      if (src.abbreviation && low(src.abbreviation) !== low(src.json)) this.alias.set(low(src.abbreviation), src.json);
+    }
   }
 
   load() {
     this.reset();
     if (!fs.existsSync(this.dir)) { this.error = `Dossier introuvable : ${this.dir}`; return this; }
-    const files = walk(this.dir).filter(f => !SKIP_FILE.test(path.basename(f)));
+    const files = walk(this.dir);
     let lookup = null, oldSources = null;
-    for (const f of files) {
+    for (const { file: f, partnered } of files) {
+      if (partnered) continue;
       const base = path.basename(f);
       if (base === 'gendata-spell-source-lookup.json') lookup = readJson(f);
       else if (base === 'sources.json' && path.basename(path.dirname(f)) === 'spells') oldSources = readJson(f);
     }
-    for (const f of files) {
+    for (const { file: f, partnered } of files) {
       const base = path.basename(f);
-      if (base === 'gendata-spell-source-lookup.json' || base === 'sources.json' || base === 'index.json') continue;
+      if (!partnered && (base === 'gendata-spell-source-lookup.json' || base === 'sources.json' || base === 'index.json')) continue;
       const j = readJson(f);
       if (!j || typeof j !== 'object') continue;
+      // Un fichier partenaire est au format homebrew : ses sources sont décrites dans _meta.
+      if (partnered) this.addPartneredSources(j._meta);
       let used = false;
       if (Array.isArray(j.spell)) { for (const s of j.spell) this.addSpell(s, lookup, oldSources); used = true; }
       for (const k of ['item', 'baseitem']) {
@@ -332,9 +357,10 @@ export class FiveETools {
         used = true;
       }
       if (Array.isArray(j.race)) { this.addRaces(j); used = true; }
-      if (Array.isArray(j.class) || Array.isArray(j.classFeature)) { this.addClassFile(j); used = true; }
-      if (Array.isArray(j.book) && base === 'books.json') { for (const b of j.book) this.books.push({ ...b, kind: 'book' }); used = true; }
-      if (Array.isArray(j.adventure) && base === 'adventures.json') { for (const b of j.adventure) this.books.push({ ...b, kind: 'adventure' }); used = true; }
+      // Un livre partenaire peut n'ajouter que des sous-classes à une classe officielle.
+      if (['class', 'classFeature', 'subclass', 'subclassFeature'].some(k => Array.isArray(j[k]))) { this.addClassFile(j); used = true; }
+      if (Array.isArray(j.book) && base === 'books.json' && !partnered) { for (const b of j.book) this.books.push({ ...b, kind: 'book' }); used = true; }
+      if (Array.isArray(j.adventure) && base === 'adventures.json' && !partnered) { for (const b of j.adventure) this.books.push({ ...b, kind: 'adventure' }); used = true; }
       for (const [jk, kind] of Object.entries(GENERIC)) {
         if (!Array.isArray(j[jk])) continue;
         const map = this.catMap(kind);
@@ -494,7 +520,7 @@ export class FiveETools {
   find(map, name, source) {
     if (!map || !name) return null;
     if (source) {
-      const hit = map.get(key(name, source));
+      const hit = map.get(key(name, source)) || map.get(key(name, this.sourceCode(source)));
       if (hit) return hit;
     }
     const n = low(name);
@@ -573,7 +599,7 @@ export class FiveETools {
 
   pickClass(name, source) {
     const list = this.classes.filter(c => low(c.name) === low(name));
-    if (source) { const hit = list.find(c => low(c.source) === low(source)); if (hit) return hit; }
+    if (source) { const want = [low(source), low(this.sourceCode(source))]; const hit = list.find(c => want.includes(low(c.source))); if (hit) return hit; }
     return list.sort((a, b) => this.rank(a.source) - this.rank(b.source))[0] || null;
   }
 
@@ -611,10 +637,11 @@ export class FiveETools {
   }
 
   // Les classes jouables, une par nom, dans la source préférée ; pour créer une fiche.
+  // Les classes des livres partenaires n'y sont pas : elles restent dans la recherche.
   classList() {
     const best = new Map();
     for (const c of this.classes) {
-      if (c.isSidekick || c.isReprinted) continue;
+      if (c.isSidekick || c.isReprinted || this.partnered.has(low(c.source))) continue;
       const k = low(c.name);
       const cur = best.get(k);
       if (!cur || this.rank(c.source) < this.rank(cur.source)) best.set(k, c);
@@ -624,7 +651,7 @@ export class FiveETools {
 
   subclass(className, classSource, shortName, source) {
     const s = this.subclasses.find(x => low(x.className) === low(className) && low(x.classSource || 'PHB') === low(classSource)
-      && (low(x.shortName) === low(shortName) || low(x.name) === low(shortName)) && (!source || low(x.source) === low(source)));
+      && (low(x.shortName) === low(shortName) || low(x.name) === low(shortName)) && (!source || [low(source), low(this.sourceCode(source))].includes(low(x.source))));
     if (!s) return null;
     const features = [];
     for (const uid of s.subclassFeatures || []) {
@@ -802,11 +829,13 @@ export class FiveETools {
     return (modern && exact(fold(modern))) || exact(n) || pick(list.filter(s => n.includes(fold(s.shortName)) || fold(s.name).includes(n)));
   }
 
-  // Armes qui ont une propriété Weapon Mastery (PHB 2024).
+  // Armes qui ont une propriété Weapon Mastery (PHB 2024). Les armes des livres partenaires
+  // (armes à feu, variantes en argent…) noieraient la liste : elles n'y sont pas.
   masteryWeapons() {
     const out = new Map();
     for (const it of this.items.values()) {
       if (!Array.isArray(it.mastery) || !it.mastery.length || it.rarity && it.rarity !== 'none') continue;
+      if (this.partnered.has(low(it.source))) continue;
       const k = low(it.name);
       const cur = out.get(k);
       if (!cur || this.rank(it.source) < this.rank(cur.source)) out.set(k, { name: it.name, source: it.source, mastery: it.mastery.map(m => String(m).split('|')[0]).join(', ') });
@@ -1051,6 +1080,7 @@ export class FiveETools {
       feats: size('feat'), options: size('opt'), classes: new Set(this.classes.map(c => c.name)).size,
       races: this.races.size, backgrounds: size('background'), monsters: size('monster'), rules: size('variantrule'),
       deities: size('deity'), books: this.books.length, headings: this.headings ? this.headings.length : null,
+      partnered: [...this.partnered.values()].map(p => p.json).sort(),
       error: this.error, download: (info => (info ? (({ sha, ...rest }) => rest)(info) : null))(readDownloadInfo(this.dir)),
     };
   }
