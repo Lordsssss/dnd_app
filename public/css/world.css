@@ -123,3 +123,87 @@ body.world-page { margin: 0; overflow: hidden; background: var(--bg); color: var
 .w-up-opt a { color: var(--blue); }
 /* Vue joueur du MJ : un repère dans la barre, pour ne pas la confondre avec sa propre vue. */
 .w-preview { padding: 3px 8px; border-radius: 4px; background: rgba(90, 169, 255, .2); color: var(--bar-ink); font-size: 12px; font-weight: 700; white-space: nowrap; }
+
+/* Atlas : le panneau des cartes, à gauche. */
+.w-side {
+  width: 230px; flex: none; display: flex; flex-direction: column; gap: 2px; padding: 10px 8px; overflow-y: auto;
+  background: var(--paper); border-right: 1px solid var(--line); z-index: 4;
+}
+.w-side-head { margin: 2px 6px 6px; font: 800 11px var(--f-lab); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); }
+.w-side-row { display: flex; align-items: center; gap: 2px; border-radius: 8px; }
+.w-side-row.on { background: var(--paper-3); box-shadow: inset 3px 0 0 var(--accent); }
+.w-side-item {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 8px 8px; border: 0; border-radius: 8px;
+  background: none; color: var(--ink); font-size: 14px; text-align: left; cursor: pointer;
+}
+.w-side-item:hover { background: var(--paper-2); }
+.w-side-ico { flex: none; width: 20px; text-align: center; }
+.w-side-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.w-tag { flex: none; padding: 1px 6px; border-radius: 4px; background: var(--paper-3); color: var(--ink-3); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.w-eye { flex: none; width: 30px; opacity: .6; }
+.w-eye.on { opacity: 1; }
+.w-side-tools { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 4px 4px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.w-side-add { margin: 10px 4px 4px; }
+.w-newmap { display: grid; gap: 6px; margin: 4px; }
+.w-newmap .txt { border: 1px solid var(--line); border-radius: 6px; background: var(--paper-2); color: var(--ink); padding: 6px 8px; font-size: 14px; }
+.w-newmap p, .w-side-empty { margin: 4px; }
+.w-side-btn { padding: 4px 9px; }
+.w-pane { flex: 1; display: flex; align-items: center; justify-content: center; padding: 20px; overflow: auto; }
+.w-pane .join-card { max-width: 600px; }
+
+/* Les lieux d'une carte de l'atlas : zones cliquables, points numérotés ou en losange. */
+.w-area path { fill: transparent; stroke: transparent; stroke-linejoin: round; }
+.w-area.hidden path { stroke: rgba(70, 70, 80, .55); fill: rgba(70, 70, 80, .07); }
+.w-area:hover path { fill: rgba(255, 250, 230, .16); stroke: rgba(60, 40, 20, .55); }
+.w-area.sel path { fill: rgba(228, 7, 18, .08); stroke: #b0000a; }
+.w-area-name, .w-pin-name {
+  fill: #26262e; stroke: rgba(245, 240, 228, .9); paint-order: stroke; stroke-linejoin: round;
+  font-family: "Almendra SC", Georgia, serif; pointer-events: none;
+}
+.w-area-name { text-anchor: middle; letter-spacing: .06em; }
+.w-pin circle { fill: #7a1f1f; stroke: #f4ecd8; }
+.w-pin path { fill: #c0392b; stroke: #fff; }
+.w-pin-num { fill: #f4ecd8; text-anchor: middle; font-weight: 700; font-family: Georgia, serif; pointer-events: none; }
+.w-pin.hidden circle, .w-pin.hidden path { opacity: .55; stroke-dasharray: 3 2; }
+.w-pin.hidden .w-pin-name { opacity: .7; font-style: italic; }
+.w-pin:hover circle, .w-pin:hover path { stroke: #ffd24a; }
+.w-over .w-pin.sel circle, .w-over .w-pin.sel path { stroke: #ffd24a; fill: #b0000a; }
+.w-over .w-pin.sel .w-pin-num { fill: #fff; }
+.w-draft polyline { fill: rgba(228, 7, 18, .08); stroke: #b0000a; stroke-dasharray: 6 4; }
+.w-draft circle { fill: #fff; stroke: #b0000a; }
+.w-stage.atlas { background: #cfc8ba; }
+.w-stage.mode-zone, .w-stage.mode-reshape { cursor: crosshair; }
+
+/* La fiche : ce que voient les joueurs, les infos révélées, l'image du lieu. */
+.w-num { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 26px; padding: 0 5px; border-radius: 13px; background: #7a1f1f; color: #f4ecd8; font: 700 14px Georgia, serif; vertical-align: 3px; }
+.w-hidden { color: var(--ink-3); }
+.w-pimg { display: block; margin: 10px 0; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
+.w-pimg img { display: block; width: 100%; max-height: 260px; object-fit: cover; }
+.w-pub.md p:last-child { margin-bottom: 0; }
+.w-facts-list { margin: 10px 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.w-facts-list li { position: relative; padding: 7px 10px 7px 26px; border-radius: 8px; background: var(--paper-2); font-size: 14px; line-height: 1.4; }
+.w-facts-list li::before { content: '◆'; position: absolute; left: 9px; top: 8px; font-size: 10px; color: var(--gold); }
+.w-facts-list li p { margin: 0; }
+.w-pview { margin: 14px 0 4px; padding: 10px 12px; border: 1.5px solid rgba(90, 169, 255, .45); border-radius: 10px; background: rgba(90, 169, 255, .06); }
+.w-pview.off { border-style: dashed; border-color: var(--line); background: none; }
+.w-pview > header { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }
+.w-pview > header b { font: 800 11px var(--f-lab); text-transform: uppercase; letter-spacing: .06em; color: var(--blue); }
+.w-pview.off > header b { color: var(--ink-3); }
+.w-pview .w-pub { margin: 6px 0; background: var(--paper); }
+.w-pview .w-facts-list li { background: var(--paper); }
+.w-facts-edit { display: grid; gap: 6px; }
+.w-facts-edit .w-field small { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.w-fact-row { display: grid; grid-template-columns: auto 1fr auto; gap: 6px; align-items: start; }
+.w-fact-row input[type="checkbox"] { margin-top: 8px; width: 18px; height: 18px; }
+.w-fact-row .txt { font: 500 14px var(--f-val); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; background: var(--paper-2); padding: 6px 8px; resize: vertical; line-height: 1.35; }
+.w-facts-edit > .btn { justify-self: start; }
+.w-row2 { display: grid; grid-template-columns: 1fr 90px; gap: 8px; }
+
+@media (max-width: 760px) {
+  .w-side { position: absolute; left: 0; top: 0; bottom: 0; width: min(280px, 82vw); box-shadow: 6px 0 18px rgba(0, 0, 0, .35); z-index: 8; }
+  .w-side-back { position: absolute; inset: 0; background: rgba(0, 0, 0, .35); z-index: 7; }
+  .w-pane { order: 2; }
+}
+.w-card { overflow-x: hidden; }
+.w-field .txt, .w-fact-row .txt { width: 100%; box-sizing: border-box; min-width: 0; }
+.w-row2 > *, .w-fact-row > * { min-width: 0; }

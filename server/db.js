@@ -130,6 +130,12 @@ export class Db {
         ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`),
       delKit: p('DELETE FROM kits WHERE id = ? AND campaign_id = ?'),
 
+      atlasOf: p('SELECT id, data, updated_at FROM atlas WHERE campaign_id = ?'),
+      getAtlas: p('SELECT id, data, updated_at FROM atlas WHERE campaign_id = ? AND id = ?'),
+      putAtlas: p(`INSERT INTO atlas (campaign_id, id, data, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(campaign_id, id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`),
+      delAtlas: p('DELETE FROM atlas WHERE campaign_id = ? AND id = ?'),
+
       getWorld: p('SELECT * FROM worlds WHERE campaign_id = ?'),
       putWorld: p(`INSERT INTO worlds (campaign_id, overlay, map_file, image, updated_at) VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(campaign_id) DO UPDATE SET overlay = excluded.overlay, map_file = excluded.map_file, image = excluded.image, updated_at = excluded.updated_at`),
@@ -204,7 +210,7 @@ export class Db {
   }
   deleteCampaign(id) {
     this.tx(() => {
-      for (const t of ['memberships', 'invitations', 'api_tokens', 'scenes', 'bestiary', 'worlds', 'damage_log', 'kits', 'map_overlay']) this.db.prepare(`DELETE FROM ${t} WHERE campaign_id = ?`).run(id);
+      for (const t of ['memberships', 'invitations', 'api_tokens', 'scenes', 'bestiary', 'worlds', 'atlas', 'damage_log', 'kits', 'map_overlay']) this.db.prepare(`DELETE FROM ${t} WHERE campaign_id = ?`).run(id);
       this.db.prepare('DELETE FROM docs WHERE campaign = ?').run(id);
       this.db.prepare('DELETE FROM rolls WHERE campaign = ?').run(id);
       this.q.delCampaign.run(id);
@@ -268,6 +274,18 @@ export class Db {
     return r ? { campaign: cid, overlay: json(r.overlay, {}), mapFile: r.map_file || null, image: r.image || null, updatedAt: r.updated_at } : null;
   }
   putWorld(cid, w) { this.q.putWorld.run(cid, JSON.stringify(w.overlay || {}), w.mapFile || null, w.image || null, Date.now()); }
+
+  // ---------------------------------------------------------------- Atlas : les autres cartes
+  atlasOf(cid) { return this.q.atlasOf.all(cid).map(r => ({ id: r.id, ...json(r.data, {}), updatedAt: r.updated_at })); }
+  getAtlas(cid, id) { const r = this.q.getAtlas.get(cid, id); return r ? { id: r.id, ...json(r.data, {}), updatedAt: r.updated_at } : null; }
+  // updated_at ne recule jamais : deux écritures dans la même milliseconde gardent des versions distinctes.
+  putAtlas(cid, id, data) {
+    const prev = this.q.getAtlas.get(cid, id)?.updated_at || 0;
+    const at = Math.max(Date.now(), prev + 1);
+    this.q.putAtlas.run(cid, id, JSON.stringify(data), at);
+    return at;
+  }
+  deleteAtlas(cid, id) { this.q.delAtlas.run(cid, id); }
 
   // ---------------------------------------------------------------- Journal
   addAudit(e) {

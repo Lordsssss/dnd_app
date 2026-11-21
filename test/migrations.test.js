@@ -45,7 +45,7 @@ test('une base mono-campagne devient trois campagnes, sans rien perdre', () => {
   const file = path.join(dir, 'f.sqlite');
   legacyDb(file);
   const db = openDb(file, { backupDir: path.join(dir, 'bk') });
-  assert.deepEqual(db.migrated, [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.deepEqual(db.migrated, [1, 2, 3, 4, 5, 6, 7, 8, 9]);
   assert.ok(fs.readdirSync(path.join(dir, 'bk', 'migrations')).length, 'copie de la base avant migration');
   const campaigns = new Campaigns(db);
   assert.deepEqual(campaigns.list().map(c => c.id).sort(), ['main', 'oneshot', 'side']);

@@ -1,6 +1,6 @@
 # D&D Table — notes for AI agents
 
-A self-hosted D&D 5e table app: live character sheets, campaigns with their own DM, a DM map with fog and initiative, a world map. Node 22 (built-in `node:sqlite`), Preact + htm with no build step, `ws`.
+A self-hosted D&D 5e table app: live character sheets, campaigns with their own DM, a DM map with fog and initiative, an atlas of maps. Node 22 (built-in `node:sqlite`), Preact + htm with no build step, `ws`.
 
 ## Hard rules
 
@@ -14,7 +14,7 @@ A self-hosted D&D 5e table app: live character sheets, campaigns with their own 
 
 - `server/` — HTTP + WebSocket server. `app.js` assembles; `routes/*.js` hold the REST routes; `ws.js` the sheet channel; `map/` the DM map; `engine.js` the sheet engine; `migrations.js` the numbered schema migrations; `campaigns.js` roles, invitations, API tokens.
 - `shared/` — code run by both server and browser: rules, actions, model, features, bestiary, map ops, i18n.
-- `public/` — the browser app. `app/` sheets, home, DM panel, admin console; `map/` the DM map and TV; `world/` the world map.
+- `public/` — the browser app. `app/` sheets, home, DM panel, admin console; `map/` the DM map and TV; `world/` the atlas: the world map and the other maps (`server/atlas.js`).
 - `tools/map_walls.py` — wall tracer used by Auto-walls (python3, Pillow, numpy, scipy).
 
 ## Conventions

@@ -54,9 +54,9 @@ function CampaignCard({ c }) {
     </a>
     ${dm ? html`<div class="camp-tools">
       <a class="btn small" href=${`/c/${c.id}/carte`} target=${`carte-${c.id}`} rel="noopener">${Icon.map()} ${t('Carte')}</a>
-      <a class="btn small" href=${`/c/${c.id}/monde`} target=${`monde-${c.id}`} rel="noopener">${t('Monde')}</a>
+      <a class="btn small" href=${`/c/${c.id}/cartes`} target=${`atlas-${c.id}`} rel="noopener">${t('Atlas')}</a>
       <a class="btn small" href=${`/c/${c.id}/mj`} onClick=${linkClick}>${Icon.scroll()} ${t('Panneau MJ')}</a>
-    </div>` : html`<div class="camp-tools"><a class="btn small" href=${`/c/${c.id}/monde`} target=${`monde-${c.id}`} rel="noopener">${t('Carte du monde')}</a></div>`}
+    </div>` : html`<div class="camp-tools"><a class="btn small" href=${`/c/${c.id}/cartes`} target=${`atlas-${c.id}`} rel="noopener">${t('Atlas')}</a></div>`}
   </article>`;
 }
 

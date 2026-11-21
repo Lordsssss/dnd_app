@@ -13,7 +13,7 @@ A self-hosted table for D&D 5e campaigns: live character sheets, a DM map with f
 - Features & Traits as a list of entries kept word for word. Paste the text of a paper or PDF sheet and each line or paragraph becomes an entry; the official 5etools text only replaces theirs when they ask.
 - Spells fully editable. Spells granted by a subclass, feat, species or item are marked free and don't count. Limits come from the class tables (2024: prepared spells by level) and only warn.
 - Dice rolls on every bonus, shared log, rests, level-up wizard, inventory with the party stash and fund, notes with a pencil layer, a secret page only they and the DM see.
-- The world map, showing only what the DM marked as known.
+- The atlas: the world map and the campaign's other maps, showing only what the DM marked as known.
 - A **Map** tab that opens the table's map in another browser tab, at `/c/<campaign>/carte/joueur`: the map on the TV under the same fog, without hidden tokens, HP numbers or initiative. They pan and zoom freely unless the DM locks the view on the TV, and drag their own tokens: walls and closed doors stop them, and the distance shows in ft. A PC token belongs to the player of the sheet it is linked to, or of the sheet with the same name; the DM can let a player move any other token too, a familiar or a mount.
 - **Images and drawings** on that map: paste an image or a GIF with Ctrl+V, drag it in, or paste its address, then move or resize it; draw freehand with a few colours and widths. Everyone deletes only what they put there: one item with the eraser or its ✕, or everything of theirs on the map with **Delete all**.
 
@@ -29,7 +29,7 @@ A self-hosted table for D&D 5e campaigns: live character sheets, a DM map with f
 - **Log** of everything that happened in the campaign.
 - **Map** at `/c/<campaign>/carte`: upload a map, measure the grid by dragging over one square, Auto-walls from the image, then walls and doors by hand. Fog that follows the tokens, a TV window, initiative with one line per creature and its HP and damage boxes, rulers, templates, drawing. Token details: HP, conditions, notes, stat block. Every HP change is kept in a damage log, read with `GET /api/c/<campaign>/map/damage-log` (DM only).
 - **Players** in the map's top bar: lock every player's view on the TV framing, bring their views back once, block their tokens. The **Images et dessins** panel turns pasting and drawing on or off for everyone or for one player, shows or hides them on the TV, and deletes everything one player put on the maps. The DM pastes images too, and like everyone only moves or deletes their own; the DM's own drawing tool is unchanged.
-- **World map** at `/c/<campaign>/monde`: an Azgaar `.map` file or any image. Corrected names, DM notes, a text for the players, places, the party's pin.
+- **Atlas** at `/c/<campaign>/cartes`, opened from the « Atlas ↗ » tab of the sheets: a side panel lists the world map and the campaign's other maps, a city, a region. The world map is an Azgaar `.map` file or any image, with corrected names, DM notes, a text for the players, places and the party's pin. Another map is an image with places on it: a numbered pin or a drawn zone, a district or a forest. Each place has a text for the players, an illustration, DM notes, a vault note, and clues the DM reveals one at a time. Maps, places and clues stay hidden until the DM shows them; players see each reveal within a few seconds. In the DM's card, « Ce que voient les joueurs » shows exactly what a player reads.
 
 **The admin** (one or more accounts with the admin flag)
 - Accounts: create, reset a forgotten password, delete, grant admin, and allow an account to create campaigns.
@@ -111,7 +111,7 @@ A campaign's lead DM creates tokens in the DM panel → API. A token acts as the
 curl -H "Authorization: Bearer $TOKEN" https://dnd.example.org/api/c/$CAMPAIGN/characters
 ```
 
-Useful routes: `characters` (GET, and `characters/<id>` GET or PUT a whole sheet), `assets?kind=map&name=…` (POST an image as the request body), `map/scenes` (POST to create, `map/scenes/<id>` GET or PUT the scene with its walls), `bestiary` (GET, POST, PUT, DELETE), `kits` (GET, POST, PUT, DELETE, `kits/<id>/apply` and `kits/<id>/undo`), `monde/…` for the world map.
+Useful routes: `characters` (GET, and `characters/<id>` GET or PUT a whole sheet), `assets?kind=map&name=…` (POST an image as the request body), `map/scenes` (POST to create, `map/scenes/<id>` GET or PUT the scene with its walls), `bestiary` (GET, POST, PUT, DELETE), `kits` (GET, POST, PUT, DELETE, `kits/<id>/apply` and `kits/<id>/undo`), `monde/…` for the world map, `atlas` for the other maps (`atlas/<id>` GET, PATCH, DELETE; `atlas/<id>/places` POST several places at once; `atlas/<id>/entity` POST `{ key, patch }`).
 
 ## Command line
 

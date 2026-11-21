@@ -1,5 +1,6 @@
-// Carte du monde : le dessin d'Azgaar en fond, les lieux par-dessus, une fiche par lieu.
-// Le MJ voit tout et corrige le lore ; un joueur ne voit que ce que le groupe connaît.
+// Atlas : la carte du monde et les autres cartes de la campagne — une ville, une région — dans une
+// même page, avec un panneau pour passer de l'une à l'autre. Les lieux sont posés par-dessus, une
+// fiche par lieu. Le MJ voit tout et corrige le lore ; un joueur ne voit que ce que le groupe connaît.
 import { t, tx, setLang } from '/shared/i18n.js';
 import { html, render, useEffect, useMemo, useRef, useState } from '/app/html.js';
 import { renderMarkdown } from './markdown.js';
@@ -7,10 +8,13 @@ import { renderMarkdown } from './markdown.js';
 // ---------------------------------------------------------------- Accès
 
 const token = () => { try { return JSON.parse(localStorage.getItem('token')); } catch { return null; } };
-// La campagne est dans l'adresse : /c/<id>/monde. Chaque campagne a son monde.
-const CID = (/^\/c\/([\w-]+)\//.exec(location.pathname) || [])[1] || '';
-const W = path => `/api/c/${CID}/monde${path}`;
-// Vue joueur du MJ : ?as=<compte> ; le serveur rend le monde tel que ce joueur le voit.
+// L'adresse : /c/<campagne>/cartes/<carte>, ou /c/<campagne>/monde pour la carte du monde.
+const ROUTE = /^\/c\/([\w-]+)\/(monde|cartes)(?:\/([\w-]+))?/.exec(location.pathname) || [];
+const CID = ROUTE[1] || '';
+// La carte du monde garde son adresse d'API ; les autres sont dans l'atlas.
+const WORLD = 'monde';
+const W = path => (S.src === WORLD ? `/api/c/${CID}/monde${path}` : `/api/c/${CID}/atlas/${S.src}${path}`);
+// Vue joueur du MJ : ?as=<compte> ; le serveur rend les cartes telles que ce joueur les voit.
 const AS = new URLSearchParams(location.search).get('as') || null;
 const fileUrl = ref => `/api/file?ref=${encodeURIComponent(ref)}`;
 
@@ -34,6 +38,12 @@ const LS = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* stockage indisponible */ } },
 };
 
+const fold = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+const narrow = () => window.innerWidth <= 760;
+
+// Le texte pour les joueurs : du Markdown léger, une ligne seule faisant un paragraphe.
+const md = s => renderMarkdown(String(s || '').replace(/([^\n])\n(?!\n|\s*([-*]|\d+\.)\s)/g, '$1\n\n'));
+
 // ---------------------------------------------------------------- Vocabulaire
 
 const GROUPS = {
@@ -52,7 +62,6 @@ const LAYERS = [
   ['routes', 'Routes', true], ['rivers', 'Rivières', true], ['labels', 'Noms des États', true],
   ['places', 'Lieux', true], ['markers', 'Marqueurs', true],
 ];
-const fmtPop = n => (n >= 1000 ? `${Math.round(n / 100) / 10} k`.replace('.', ',') : String(n));
 const fmtInt = n => n.toLocaleString('fr-CA');
 
 // ---------------------------------------------------------------- État de la page
@@ -60,8 +69,12 @@ const fmtInt = n => n.toLocaleString('fr-CA');
 const S = {
   data: null, svg: null, error: null, view: null, size: { w: 1, h: 1 },
   sel: null, layers: Object.fromEntries(LAYERS.map(([k, , d]) => [k, LS.get(`world.layer.${k}`, d)])),
-  mode: null, playerView: false, notes: null, toasts: [], upload: false,
+  mode: null, draft: null, playerView: false, notes: null, toasts: [], upload: false,
+  // L'atlas : la liste des cartes, celle qui est ouverte, sa version chargée.
+  list: null, src: null, loadedV: null, side: LS.get('atlas.side', true), newMap: false,
 };
+// Le SVG du monde est lourd : gardé quand on passe à une autre carte.
+let worldSvg = null;
 const subs = new Set();
 let queued = false;
 function refresh() {
@@ -82,18 +95,73 @@ function toast(text, kind = 'info') {
 }
 
 const isDm = () => S.data?.role === 'dm' && !S.playerView;
+const dmList = () => S.list?.role === 'dm' && !AS;
+const isAtlas = () => !!S.data?.atlas;
 const shown = x => !S.playerView || x.known;
+const viewKey = () => (S.src === WORLD ? `world.view:${CID}` : `atlas.view:${CID}:${S.src}`);
+const versionOf = src => (src === WORLD ? S.list?.world?.v ?? null : S.list?.maps.find(m => m.id === src)?.v ?? null);
+const mapName = () => (S.src === WORLD ? S.data?.name || tx('Carte du monde') : S.list?.maps.find(m => m.id === S.src)?.name || S.data?.name || '');
+
+// ---------------------------------------------------------------- Chargement
+
+async function loadList() {
+  try {
+    S.list = await api(`/api/c/${CID}/atlas`);
+  } catch (e) {
+    S.error = e.status === 401 || e.status === 403 ? 'login' : e.message;
+  }
+  refresh();
+}
+
+// La carte à ouvrir : celle de l'adresse, sinon la dernière ouverte, sinon le monde.
+function firstSrc() {
+  const l = S.list;
+  if (!l) return null;
+  const ok = src => (src === WORLD ? !!l.world : l.maps.some(m => m.id === src));
+  for (const want of [ROUTE[2] === 'monde' ? WORLD : ROUTE[3], LS.get(`atlas.last:${CID}`, null)]) if (want && ok(want)) return want;
+  if (l.world?.exists) return WORLD;
+  if (l.maps.length) return l.maps[0].id;
+  return l.world ? WORLD : null;
+}
+
+function openMap(src) {
+  if (narrow()) S.side = false;
+  if (src === S.src) { refresh(); return; }
+  Object.assign(S, { src, data: null, view: null, sel: null, mode: null, draft: null, upload: false, newMap: false, svg: src === WORLD ? worldSvg : null });
+  if (src) {
+    LS.set(`atlas.last:${CID}`, src);
+    const url = `/c/${CID}/cartes/${src}${location.search}`;
+    if (location.pathname + location.search !== url) history.replaceState(null, '', url);
+  }
+  refresh();
+  if (src) load();
+}
 
 async function load() {
+  const src = S.src;
+  if (!src) return;
   try {
     const data = await api(W(''));
+    if (src !== S.src) return;
     const svg = data.mode === 'azgaar' && !S.svg ? await api(W('/svg')) : null;
+    if (src !== S.src) return;
     S.data = data;
-    if (svg) S.svg = svg;
+    if (svg) { S.svg = svg; worldSvg = svg; }
     if (data.mode === 'image') S.svg = null;
     S.error = null;
-    if (!S.view && data && !data.missing) S.view = LS.get(`world.view:${CID}`, null) || fullView(data);
+    S.loadedV = data.v ?? versionOf(src);
+    if (!S.view && data && !data.missing) S.view = LS.get(viewKey(), null) || fullView(data);
+    if (S.sel && S.sel !== 'party' && !entities().has(S.sel)) S.sel = null;
+    document.title = `${mapName()} · ${tx('Atlas')}`;
   } catch (e) {
+    if (src !== S.src) return;
+    // Une carte retirée, ou cachée de nouveau aux joueurs : on passe à une autre.
+    if (e.status === 404 && src !== WORLD) {
+      await loadList();
+      const next = firstSrc();
+      openMap(next && next !== src ? next : null);
+      return;
+    }
     S.error = e.status === 401 || e.status === 403 ? 'login' : e.message;
   }
   refresh();
@@ -101,6 +169,20 @@ async function load() {
 
 async function reloadSvg() {
   S.svg = S.data?.mode === 'azgaar' ? await api(W('/svg')) : null;
+  if (S.svg) worldSvg = S.svg;
+  refresh();
+}
+
+// Les joueurs voient les révélations du MJ sans recharger : la liste porte la version de chaque
+// carte, la carte ouverte se recharge quand la sienne change.
+async function poll() {
+  if (document.hidden || !S.list || S.error) return;
+  let l;
+  try { l = await api(`/api/c/${CID}/atlas`); } catch { return; }
+  S.list = l;
+  if (S.src && S.src !== WORLD && !l.maps.some(m => m.id === S.src)) { openMap(firstSrc()); return; }
+  if (!S.src) { const next = firstSrc(); if (next) openMap(next); }
+  else if (S.data && !S.mode && versionOf(S.src) != null && versionOf(S.src) !== S.loadedV) await load();
   refresh();
 }
 
@@ -134,7 +216,7 @@ function setView(v) {
   const d = S.data;
   const w = Math.max(d.width / 40, Math.min(d.width * 1.6, v.w));
   S.view = fitAspect({ x: v.x, y: v.y, w });
-  LS.set(`world.view:${CID}`, S.view);
+  LS.set(viewKey(), S.view);
   applyBaseView();
   refresh();
 }
@@ -163,6 +245,45 @@ function posOf(e) {
 
 // ---------------------------------------------------------------- Calque des lieux
 
+const polyPath = pts => `M${pts.map(p => `${p[0]},${p[1]}`).join(' L')} Z`;
+
+// Les lieux d'une carte de l'atlas : les zones d'abord (un quartier, une forêt), cliquables sur
+// toute leur surface, puis les points par-dessus, numérotés ou en losange.
+function atlasItems(k) {
+  const d = S.data;
+  const sel = S.sel;
+  const items = [];
+  const list = d.added.filter(shown);
+  for (const a of list.filter(x => x.shape)) {
+    items.push(html`<g key=${a.key} class=${`w-area ${a.known ? 'known' : 'hidden'} ${sel === a.key ? 'sel' : ''}`} data-key=${a.key}>
+      <title>${a.name}</title>
+      ${a.shape.map((poly, i) => html`<path key=${i} d=${polyPath(poly)} stroke-width=${2 * k} stroke-dasharray=${a.known ? null : `${7 * k} ${5 * k}`} />`)}
+      ${a.label !== false ? html`<text class="w-area-name" x=${a.x} y=${a.y} font-size=${14 * k} stroke-width=${3.5 * k}>${a.name}</text>` : null}
+    </g>`);
+  }
+  for (const a of list.filter(x => !x.shape)) {
+    const r = 9.5 * k;
+    const num = String(a.num || '');
+    items.push(html`<g key=${a.key} class=${`w-pin ${a.known ? 'known' : 'hidden'} ${num ? 'num' : ''} ${sel === a.key ? 'sel' : ''}`} data-key=${a.key}>
+      <title>${a.name}</title>
+      ${num
+        ? html`<circle cx=${a.x} cy=${a.y} r=${r} stroke-width=${1.8 * k} />
+          <text class="w-pin-num" x=${a.x} y=${a.y + (num.length > 2 ? 3 : 4) * k} font-size=${(num.length > 2 ? 8.5 : 11) * k}>${num}</text>`
+        : html`<path d=${`M${a.x},${a.y - r} L${a.x + r},${a.y} L${a.x},${a.y + r} L${a.x - r},${a.y} Z`} stroke-width=${1.6 * k} />`}
+      ${a.label !== false ? html`<text class="w-pin-name" x=${a.x + r + 4 * k} y=${a.y + 4.5 * k} font-size=${13 * k} stroke-width=${3.5 * k}>${a.name}</text>` : null}
+    </g>`);
+  }
+  // La zone en cours de tracé.
+  if (S.draft?.length) {
+    const pts = S.draft;
+    items.push(html`<g key="draft" class="w-draft">
+      <polyline points=${pts.map(p => p.join(',')).join(' ')} stroke-width=${2 * k} />
+      ${pts.map((p, i) => html`<circle key=${i} cx=${p[0]} cy=${p[1]} r=${(i === 0 ? 6 : 4) * k} stroke-width=${1.5 * k} />`)}
+    </g>`);
+  }
+  return items;
+}
+
 function Overlay() {
   const d = S.data;
   const v = S.view;
@@ -173,7 +294,8 @@ function Overlay() {
   const sel = S.sel;
   const items = [];
 
-  if (S.layers.places) {
+  if (isAtlas()) items.push(...atlasItems(k));
+  else if (S.layers.places) {
     for (const b of d.burgs) {
       if (!shown(b) || !inView(b)) continue;
       const g = b.group in MIN_ZOOM ? b.group : 'town';
@@ -205,7 +327,7 @@ function Overlay() {
       </g>`);
     }
   }
-  if (S.layers.markers) {
+  if (S.layers.markers && !isAtlas()) {
     for (const m of d.markers) {
       if (!shown(m) || !inView(m)) continue;
       if (z < 2.5 && !m.known && sel !== m.key) continue;
@@ -227,14 +349,21 @@ function Overlay() {
 
 // ---------------------------------------------------------------- Scène
 
+const BANNERS = {
+  add: 'Clique sur la carte pour placer le nouveau lieu.',
+  party: 'Clique sur la carte pour placer le groupe.',
+  move: 'Clique sur la nouvelle position du lieu.',
+  zone: 'Clique les coins de la zone, puis sur le premier point ou Entrée pour finir. Retour arrière retire le dernier point.',
+};
+
 function Stage() {
   const stage = useRef(null);
   const base = useRef(null);
 
   useEffect(() => {
-    if (!base.current || !S.svg) return;
-    base.current.innerHTML = S.svg;
-    baseSvgEl = base.current.querySelector('svg');
+    if (!base.current) return;
+    base.current.innerHTML = S.svg || '';
+    baseSvgEl = S.svg ? base.current.querySelector('svg') : null;
     if (baseSvgEl) { baseSvgEl.removeAttribute('width'); baseSvgEl.removeAttribute('height'); }
     applyBaseView();
     applyLayers();
@@ -242,11 +371,24 @@ function Stage() {
 
   useEffect(() => {
     const el = stage.current;
+    // La scène change de taille (fiche ouverte, panneau, fenêtre) : même zoom, même centre.
     const fit = () => {
       const r = el.getBoundingClientRect();
-      const first = S.size.w === 1;
+      const prev = S.size;
+      const first = prev.w === 1;
       S.size = { w: Math.max(1, r.width), h: Math.max(1, r.height) };
-      if (S.view) { S.view = first && !LS.get(`world.view:${CID}`, null) ? fullView() : fitAspect(S.view); applyBaseView(); }
+      if (S.view) {
+        if (first) S.view = LS.get(viewKey(), null) ? fitAspect(S.view) : fullView();
+        else if (prev.w !== S.size.w || prev.h !== S.size.h) {
+          const k = S.view.w / prev.w;
+          const cx = S.view.x + S.view.w / 2;
+          const cy = S.view.y + S.view.h / 2;
+          const w = k * S.size.w;
+          const h = w * (S.size.h / S.size.w);
+          S.view = { x: cx - w / 2, y: cy - h / 2, w, h };
+        }
+        applyBaseView();
+      }
       refresh();
     };
     const ro = new ResizeObserver(fit);
@@ -267,7 +409,7 @@ function Stage() {
       } else drag = { start: local(e), view: { ...S.view }, moved: false };
     };
     const move = e => {
-      if (!pointers.has(e.pointerId)) return;
+      if (!pointers.has(e.pointerId) || !S.view) return;
       pointers.set(e.pointerId, local(e));
       if (pinch && pointers.size === 2) {
         const [a, b] = [...pointers.values()];
@@ -292,11 +434,12 @@ function Stage() {
       pointers.delete(e.pointerId);
       el.classList.remove('panning');
       if (pointers.size < 2) pinch = null;
-      if (drag && !drag.moved) click(e, local(e));
+      if (drag && !drag.moved && S.view) click(e, local(e));
       drag = null;
     };
     const wheel = e => {
       e.preventDefault();
+      if (!S.view) return;
       const p = local(e);
       const at = toMap(p.x, p.y);
       const f = Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0015));
@@ -318,13 +461,17 @@ function Stage() {
     };
   }, []);
 
-  return html`<div class=${`w-stage ${S.mode ? `mode-${S.mode}` : ''}`} ref=${stage}>
+  const banner = S.mode && (BANNERS[S.mode] || BANNERS[S.mode.split(':')[0] === 'reshape' ? 'zone' : 'move']);
+  const zoning = S.mode === 'zone' || S.mode?.startsWith('reshape:');
+  return html`<div class=${`w-stage ${S.mode ? `mode-${S.mode.split(':')[0]}` : ''} ${isAtlas() ? 'atlas' : ''}`} ref=${stage}>
     <div class="w-base" ref=${base}></div>
     ${S.data?.mode === 'image' && S.view ? html`<svg class="w-img" viewBox=${`${S.view.x} ${S.view.y} ${S.view.w} ${S.view.h}`} preserveAspectRatio="xMidYMid meet">
       <image href=${fileUrl(S.data.image)} x="0" y="0" width=${S.data.width} height=${S.data.height} />
     </svg>` : null}
     ${S.view && S.data ? html`<${Overlay} />` : null}
-    ${S.mode ? html`<div class="w-banner">${S.mode === 'add' ? 'Clique sur la carte pour placer le nouveau lieu.' : S.mode === 'party' ? 'Clique sur la carte pour placer le groupe.' : 'Clique sur la nouvelle position du lieu.'} <button type="button" class="btn tiny" onClick=${() => { S.mode = null; refresh(); }}>Annuler</button></div>` : null}
+    ${banner ? html`<div class="w-banner">${banner}
+      ${zoning ? html`<button type="button" class="btn tiny" disabled=${(S.draft?.length || 0) < 3} onClick=${finishZone}>Terminer</button>` : null}
+      <button type="button" class="btn tiny" onClick=${cancelMode}>Annuler</button></div>` : null}
     <${Scale} />
   </div>`;
 }
@@ -355,11 +502,37 @@ function applyLayers() {
   }
 }
 
+function cancelMode() { S.mode = null; S.draft = null; refresh(); }
+
+// Une zone tracée : nouvelle, ou la nouvelle forme d'une zone existante.
+async function finishZone() {
+  const pts = S.draft || [];
+  const mode = S.mode;
+  if (pts.length < 3) { toast('Une zone demande au moins trois points.', 'error'); return; }
+  S.mode = null; S.draft = null;
+  if (mode === 'zone') {
+    const name = prompt(tx('Nom de la zone'), tx('Nouvelle zone'));
+    if (!name) { refresh(); return; }
+    try { const r = await api(W('/place'), { method: 'POST', body: { name, shape: pts } }); await load(); select(r.key); } catch (x) { toast(x.message, 'error'); }
+    return;
+  }
+  if (mode?.startsWith('reshape:')) await save(mode.slice(8), { shape: pts });
+  refresh();
+}
+
 async function click(e, p) {
   const at = toMap(p.x, p.y);
+  if (S.mode === 'zone' || S.mode?.startsWith('reshape:')) {
+    const pts = S.draft || [];
+    const k = S.view.w / S.size.w;
+    if (pts.length >= 3 && Math.hypot(at.x - pts[0][0], at.y - pts[0][1]) < 12 * k) { await finishZone(); return; }
+    S.draft = [...pts, [round2(at.x), round2(at.y)]];
+    refresh();
+    return;
+  }
   if (S.mode === 'add') {
     S.mode = null;
-    const name = prompt(tx('Nom du nouveau lieu'), 'Nouveau lieu');
+    const name = prompt(tx('Nom du nouveau lieu'), tx('Nouveau lieu'));
     if (!name) { refresh(); return; }
     try { const r = await api(W('/place'), { method: 'POST', body: { name, x: round2(at.x), y: round2(at.y) } }); await load(); select(r.key); } catch (x) { toast(x.message, 'error'); }
     return;
@@ -378,6 +551,7 @@ async function click(e, p) {
   const el = document.elementFromPoint(e.clientX, e.clientY);
   const hit = el?.closest('[data-key]');
   if (hit) { select(hit.dataset.key); return; }
+  if (isAtlas()) { select(null); return; }
   const prov = el?.closest('[id^="province"]');
   const pid = prov && /^province(\d+)$/.exec(prov.id)?.[1];
   const known = entities();
@@ -406,19 +580,23 @@ async function save(key, patch) {
     if (key === 'party') await api(W('/party'), { method: 'POST', body: { ...S.data.party, ...patch } });
     else await api(W('/entity'), { method: 'POST', body: { key, patch } });
     await load();
-    if (patch.full !== undefined || patch.name !== undefined) { if (key[0] === 's') await reloadSvg(); }
+    if (patch.full !== undefined || patch.name !== undefined) { if (key[0] === 's' && !isAtlas()) await reloadSvg(); }
   } catch (x) { toast(x.message, 'error'); }
+}
+
+async function uploadImage(file, kind, folder) {
+  return api(`/api/c/${CID}/assets?kind=${kind}&name=${encodeURIComponent(file.name)}&folder=${encodeURIComponent(folder)}`, { method: 'POST', raw: file, headers: { 'Content-Type': file.type || 'application/octet-stream' } });
 }
 
 // ---------------------------------------------------------------- Fiche d'un lieu
 
-function Field({ label, value, onSave, multiline = false, placeholder = '', list }) {
+function Field({ label, value, onSave, multiline = false, placeholder = '', list, rows = 4 }) {
   const [v, setV] = useState(value || '');
   useEffect(() => { setV(value || ''); }, [value]);
   const commit = () => { if ((v || '') !== (value || '')) onSave(v); };
   return html`<label class="w-field">${label}
     ${multiline
-      ? html`<textarea class="txt" rows="4" placeholder=${placeholder} value=${v} onInput=${e => setV(e.target.value)} onBlur=${commit}></textarea>`
+      ? html`<textarea class="txt" rows=${rows} placeholder=${placeholder} value=${v} onInput=${e => setV(e.target.value)} onBlur=${commit}></textarea>`
       : html`<input class="txt" placeholder=${placeholder} value=${v} list=${list} onInput=${e => setV(e.target.value)} onBlur=${commit} onKeyDown=${e => { if (e.key === 'Enter') e.target.blur(); }} />`}
   </label>`;
 }
@@ -429,7 +607,7 @@ function NoteView({ file }) {
   useEffect(() => {
     setText(null);
     setErr('');
-    api(W(`/note?file=${encodeURIComponent(file)}`)).then(r => setText(r.text)).catch(e => setErr(e.message));
+    api(`/api/c/${CID}/monde/note?file=${encodeURIComponent(file)}`).then(r => setText(r.text)).catch(e => setErr(e.message));
   }, [file]);
   if (err) return html`<p class="warn small">${err}</p>`;
   if (text == null) return html`<p class="muted small">Chargement de la note…</p>`;
@@ -437,6 +615,31 @@ function NoteView({ file }) {
 }
 
 const link = (key, label) => html`<button type="button" class="linkish" onClick=${() => { const e = entities().get(key); select(key); const p = posOf(e); if (p) centerOn(p.x, p.y); }}>${label}</button>`;
+
+// Ce que le joueur lit sur la fiche : l'image, le texte, les infos révélées. Le MJ voit la même
+// chose dans l'encadré « Ce que voient les joueurs ».
+function PlayerBody({ e }) {
+  const facts = (e.facts || []).filter(f => f.known !== false && f.text);
+  const empty = !e.pub && !facts.length && !e.image;
+  return html`
+    ${e.image ? html`<a class="w-pimg" href=${fileUrl(e.image)} target="_blank" rel="noopener"><img src=${fileUrl(e.image)} alt="" /></a>` : null}
+    ${e.pub ? html`<div class="w-pub md" dangerouslySetInnerHTML=${{ __html: md(e.pub) }}></div>` : null}
+    ${facts.length ? html`<ul class="w-facts-list">${facts.map(f => html`<li key=${f.id} class="md" dangerouslySetInnerHTML=${{ __html: md(f.text) }}></li>`)}</ul>` : null}
+    ${empty ? html`<p class="muted small">Le groupe n'en sait pas plus.</p>` : null}`;
+}
+
+function PlayerPreview({ e, kind, keyId }) {
+  if (kind === 'party') return null;
+  const hiddenFacts = (e.facts || []).filter(f => !f.known).length;
+  return html`<section class=${`w-pview ${e.known ? '' : 'off'}`}>
+    <header><b>Ce que voient les joueurs</b>
+      ${e.known ? null : html`<button type="button" class="btn tiny" onClick=${() => save(keyId, { known: true })}>Révéler</button>`}</header>
+    ${e.known ? html`<${PlayerBody} e=${e} />`
+      : kind === 'state' ? html`<p class="muted small">Seulement son nom, écrit sur la carte.</p>`
+        : html`<p class="muted small">Rien : ce lieu est caché.</p>`}
+    ${e.known && hiddenFacts ? html`<p class="muted small">${t('{n} info(s) encore cachée(s).', { n: hiddenFacts })}</p>` : null}
+  </section>`;
+}
 
 function Card() {
   const d = S.data;
@@ -484,29 +687,54 @@ function Card() {
   } else if (kind === 'marker') {
     facts.push(['Genre', e.type]);
     if (dm && e.note) facts.push(['Azgaar', e.note]);
-  } else if (kind === 'added') {
+  } else if (kind === 'added' && !isAtlas()) {
     if (e.kind) facts.push(['Genre', e.kind]);
   }
   const chips = kind === 'burg' && (dm || e.known) ? FEATURES.filter(([k]) => e[k]).map(([, l]) => l) : [];
+  // Une carte de l'atlas porte le nom de ce lieu : un lien pour l'ouvrir.
+  const plan = !isAtlas() && !party ? S.list?.maps.find(m => fold(m.name) === fold(e.name) || fold(m.name) === fold(e.full)) : null;
+  const kindLabel = isAtlas() && kind === 'added'
+    ? e.kind || (e.shape ? 'Zone' : 'Lieu')
+    : party ? 'Position du groupe' : { burg: 'Lieu', state: 'État', province: 'Province', marker: 'Marqueur', lake: 'Lac', added: 'Lieu ajouté' }[kind];
 
   return html`<aside class="w-card">
     <header>
       <div>
-        <p class="w-kind">${party ? 'Position du groupe' : { burg: 'Lieu', state: 'État', province: 'Province', marker: 'Marqueur', lake: 'Lac', added: 'Lieu ajouté' }[kind]}${e.known && dm ? html` · <span class="w-known">connu des joueurs</span>` : null}</p>
-        <h2>${kind === 'marker' ? `${e.icon} ` : ''}${title}</h2>
+        <p class="w-kind">${kindLabel}${e.known && dm ? html` · <span class="w-known">connu des joueurs</span>` : dm && !party && kind !== 'state' ? html` · <span class="w-hidden">caché</span>` : null}</p>
+        <h2>${kind === 'marker' ? `${e.icon} ` : ''}${e.num ? html`<span class="w-num">${e.num}</span> ` : null}${title}</h2>
         ${dm && e.origName && e.origName !== e.name ? html`<p class="muted small">Dans Azgaar : ${e.origName}</p>` : null}
       </div>
       <button type="button" class="icon-btn" aria-label="Fermer" onClick=${() => select(null)}>✕</button>
     </header>
     ${facts.length ? html`<dl class="w-facts">${facts.map(([k, v]) => html`<dt>${k}</dt><dd>${v}</dd>`)}</dl>` : null}
     ${chips.length ? html`<p class="w-chips">${chips.map(c => html`<span class="badge">${c}</span>`)}</p>` : null}
-    ${!dm && e.pub ? html`<div class="w-pub">${e.pub.split('\n').map(l => html`<p>${l}</p>`)}</div>` : null}
-    ${!dm && !e.pub && kind !== 'party' ? html`<p class="muted small">Le groupe n'en sait pas plus.</p>` : null}
+    ${plan ? html`<p><button type="button" class="btn small" onClick=${() => openMap(plan.id)}>${t('Ouvrir la carte de {name}', { name: plan.name })} ›</button></p>` : null}
+    ${!dm && kind !== 'party' ? html`<${PlayerBody} e=${e} />` : null}
+    ${dm ? html`<${PlayerPreview} e=${e} kind=${kind} keyId=${key} />` : null}
     ${dm ? html`<${DmEdit} e=${e} keyId=${key} kind=${kind} openNote=${openNote} setOpenNote=${setOpenNote} />` : null}
   </aside>`;
 }
 
+// Les infos d'un lieu, que le MJ révèle une à une : cochée, le joueur la voit.
+function FactsEditor({ e, keyId }) {
+  const [rows, setRows] = useState(e.facts || []);
+  const sig = JSON.stringify(e.facts || []);
+  useEffect(() => { setRows(e.facts || []); }, [sig]);
+  const commit = next => { setRows(next); if (JSON.stringify(next.filter(f => f.text.trim())) !== sig) save(keyId, { facts: next.filter(f => f.text.trim()) }); };
+  const at = (i, patch) => rows.map((x, j) => (j === i ? { ...x, ...patch } : x));
+  return html`<div class="w-facts-edit">
+    <div class="w-field">Infos à révéler <small class="muted">cochée = visible des joueurs</small></div>
+    ${rows.map((f, i) => html`<div class="w-fact-row" key=${f.id || `n${i}`}>
+      <input type="checkbox" checked=${!!f.known} title="Révélée aux joueurs" onChange=${ev => commit(at(i, { known: ev.target.checked }))} />
+      <textarea class="txt" rows="2" value=${f.text} placeholder="Ce que le groupe peut apprendre ici." onInput=${ev => setRows(at(i, { text: ev.target.value }))} onBlur=${() => commit(rows)}></textarea>
+      <button type="button" class="icon-btn" title="Retirer cette info" onClick=${() => commit(rows.filter((_, j) => j !== i))}>✕</button>
+    </div>`)}
+    <button type="button" class="btn tiny" onClick=${() => setRows([...rows, { id: '', text: '', known: false }])}>+ Info</button>
+  </div>`;
+}
+
 function DmEdit({ e, keyId, kind, openNote, setOpenNote }) {
+  const imgRef = useRef(null);
   if (kind === 'party') {
     return html`<div class="w-edit">
       <label class="check"><input type="checkbox" checked=${e.known !== false} onChange=${ev => save('party', { known: ev.target.checked })} /> Visible des joueurs</label>
@@ -518,19 +746,40 @@ function DmEdit({ e, keyId, kind, openNote, setOpenNote }) {
     </div>`;
   }
   const named = kind === 'state' || kind === 'province';
+  const atlasPlace = isAtlas() && kind === 'added';
+  const remove = async () => { if (!confirm(t('Retirer « {name} » ?', { name: e.name }))) return; await api(W(`/place/${keyId}`), { method: 'DELETE' }); select(null); load(); };
+  const sendImg = async ev => {
+    const f = ev.target.files?.[0];
+    ev.target.value = '';
+    if (!f) return;
+    try { const a = await uploadImage(f, 'image', tx('Atlas')); await save(keyId, { image: a.ref }); } catch (x) { toast(x.message, 'error'); }
+  };
   return html`<div class="w-edit">
     <label class="check"><input type="checkbox" checked=${!!e.known} onChange=${ev => save(keyId, { known: ev.target.checked })} /> Connu des joueurs</label>
     <${Field} label="Nom" value=${e.name} placeholder=${e.origName} onSave=${v => save(keyId, { name: v })} />
     ${named ? html`<${Field} label="Nom complet" value=${e.full} placeholder=${e.origName} onSave=${v => save(keyId, { full: v })} />` : null}
+    ${atlasPlace ? html`<div class="w-row2">
+      <${Field} label="Genre" value=${e.kind} placeholder="taverne, quartier, temple…" onSave=${v => save(keyId, { kind: v })} />
+      <${Field} label="Numéro" value=${e.num} placeholder="7" onSave=${v => save(keyId, { num: v })} />
+    </div>
+    <label class="check"><input type="checkbox" checked=${e.label !== false} onChange=${ev => save(keyId, { label: ev.target.checked })} /> Nom écrit sur la carte</label>` : null}
     ${S.data.vault ? html`<${Field} label="Note du coffre" value=${e.note} placeholder="Dossier/Note.md" list="w-notes" onSave=${v => save(keyId, { note: v.trim() })} />` : null}
     ${e.note && S.data.vault ? html`<button type="button" class="btn tiny ghost" onClick=${() => setOpenNote(!openNote)}>${openNote ? 'Masquer la note' : 'Lire la note'}</button>` : null}
     ${e.note && openNote ? html`<${NoteView} file=${e.note} />` : null}
     <${Field} label="Pour les joueurs" multiline value=${e.pub} placeholder="Ce que le groupe sait de ce lieu, visible sur sa carte." onSave=${v => save(keyId, { pub: v })} />
+    ${atlasPlace ? html`<${FactsEditor} e=${e} keyId=${keyId} />` : null}
     <${Field} label="Notes du MJ" multiline value=${e.mj} placeholder="Jamais montré aux joueurs." onSave=${v => save(keyId, { mj: v })} />
+    ${atlasPlace ? html`<div class="row-btns">
+      <button type="button" class="btn small" onClick=${() => imgRef.current?.click()}>${e.image ? 'Changer l\'image' : '+ Image'}</button>
+      ${e.image ? html`<button type="button" class="btn small ghost" onClick=${() => save(keyId, { image: null })}>Retirer l'image</button>` : null}
+      <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden ref=${imgRef} onChange=${sendImg} />
+    </div>` : null}
     ${kind === 'added' ? html`<div class="row-btns">
-      <${Field} label="Genre" value=${e.kind} placeholder="donjon, ruine, camp…" onSave=${v => save(keyId, { kind: v })} />
-      <button type="button" class="btn small" onClick=${() => { S.mode = `move:${keyId}`; refresh(); }}>Déplacer</button>
-      <button type="button" class="btn small danger ghost" onClick=${async () => { if (!confirm(t('Retirer « {name} » ?', { name: e.name }))) return; await api(W(`/place/${keyId}`), { method: 'DELETE' }); select(null); load(); }}>Retirer</button>
+      ${!isAtlas() ? html`<${Field} label="Genre" value=${e.kind} placeholder="donjon, ruine, camp…" onSave=${v => save(keyId, { kind: v })} />` : null}
+      ${e.shape
+        ? html`<button type="button" class="btn small" onClick=${() => { S.mode = `reshape:${keyId}`; S.draft = []; refresh(); }}>Redessiner la zone</button>`
+        : html`<button type="button" class="btn small" onClick=${() => { S.mode = `move:${keyId}`; refresh(); }}>Déplacer</button>`}
+      <button type="button" class="btn small danger ghost" onClick=${remove}>Retirer</button>
     </div>` : null}
   </div>`;
 }
@@ -541,15 +790,15 @@ function Search() {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const list = useMemo(() => {
-    const t = q.trim().toLowerCase();
-    if (t.length < 2 || !S.data) return [];
+    const qq = q.trim().toLowerCase();
+    if (qq.length < 2 || !S.data) return [];
     const out = [];
     for (const [key, e] of entities()) {
       if (!shown(e) && !(key[0] === 's')) continue;
       const names = [e.name, e.full, e.origName].filter(Boolean).map(s => s.toLowerCase());
-      const hit = names.find(n => n.includes(t));
+      const hit = names.find(n => n.includes(qq));
       if (!hit) continue;
-      out.push({ key, e, score: (hit.startsWith(t) ? 0 : 1) + (e.known ? -0.5 : 0) + (key[0] === 'b' ? (e.group === 'capital' ? 0 : e.group === 'city' ? 0.1 : 0.3) : 0) });
+      out.push({ key, e, score: (hit.startsWith(qq) ? 0 : 1) + (e.known ? -0.5 : 0) + (key[0] === 'b' ? (e.group === 'capital' ? 0 : e.group === 'city' ? 0.1 : 0.3) : 0) });
     }
     return out.sort((a, b) => a.score - b.score).slice(0, 14);
   }, [q, S.data, S.playerView]);
@@ -557,9 +806,9 @@ function Search() {
     setOpen(false);
     select(key);
     const p = posOf(e);
-    if (p) centerOn(p.x, p.y, key[0] === 's' ? 2.5 : key[0] === 'p' ? 4 : 6);
+    if (p) centerOn(p.x, p.y, key[0] === 's' ? 2.5 : key[0] === 'p' ? 4 : isAtlas() ? Math.max(zoom(), 2) : 6);
   };
-  const label = e => ({ b: GROUPS[e.group] || 'Lieu', p: 'Province', s: 'État', m: 'Marqueur', l: 'Lac', a: e.kind || 'Lieu' });
+  const label = e => ({ b: GROUPS[e.group] || 'Lieu', p: 'Province', s: 'État', m: 'Marqueur', l: 'Lac', a: e.kind || (e.shape ? 'Zone' : 'Lieu') });
   return html`<div class="w-search">
     <input class="txt" type="search" placeholder="Chercher un lieu…" value=${q}
       onInput=${e => { setQ(e.target.value); setOpen(true); }} onFocus=${() => setOpen(true)}
@@ -570,11 +819,96 @@ function Search() {
   </div>`;
 }
 
+// ---------------------------------------------------------------- Panneau des cartes
+
+async function patchMap(id, patch) {
+  try { await api(`/api/c/${CID}/atlas/${id}`, { method: 'PATCH', body: patch }); await loadList(); if (id === S.src) await load(); } catch (x) { toast(x.message, 'error'); }
+}
+
+function NewMap() {
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const ref = useRef(null);
+  const send = async ev => {
+    const f = ev.target.files?.[0];
+    ev.target.value = '';
+    if (!f) return;
+    setBusy(true);
+    try {
+      const a = await uploadImage(f, 'world', tx('Atlas'));
+      const r = await api(`/api/c/${CID}/atlas`, { method: 'POST', body: { name: name.trim() || f.name.replace(/\.[^.]+$/, ''), image: a.ref } });
+      S.newMap = false;
+      await loadList();
+      openMap(r.id);
+    } catch (x) { toast(x.message, 'error'); } finally { setBusy(false); }
+  };
+  return html`<div class="w-newmap">
+    <input class="txt" placeholder="Nom : une ville, une région…" value=${name} onInput=${e => setName(e.target.value)} />
+    <button type="button" class="btn small primary" disabled=${busy} onClick=${() => ref.current?.click()}>${busy ? 'Envoi…' : 'Choisir l\'image'}</button>
+    <input type="file" accept="image/png,image/jpeg,image/webp" hidden ref=${ref} onChange=${send} />
+    <p class="muted small">La carte reste cachée aux joueurs jusqu'à ce que tu la montres.</p>
+  </div>`;
+}
+
+function MapTools({ m }) {
+  const imgRef = useRef(null);
+  const maps = S.list.maps;
+  const i = maps.findIndex(x => x.id === m.id);
+  // Monter ou descendre : on renumérote toute la liste dans le nouvel ordre.
+  const moveBy = async dir => {
+    const j = i + dir;
+    if (j < 0 || j >= maps.length) return;
+    const order = maps.map(x => x.id);
+    [order[i], order[j]] = [order[j], order[i]];
+    try { for (const [n, id] of order.entries()) await api(`/api/c/${CID}/atlas/${id}`, { method: 'PATCH', body: { order: n } }); } catch (x) { toast(x.message, 'error'); }
+    loadList();
+  };
+  const rename = () => { const n = prompt(tx('Nom de la carte'), m.name); if (n && n.trim() && n.trim() !== m.name) patchMap(m.id, { name: n.trim() }); };
+  const remove = async () => {
+    if (!confirm(t('Retirer la carte « {name} » et tous ses lieux ? L\'image reste dans la bibliothèque.', { name: m.name }))) return;
+    try { await api(`/api/c/${CID}/atlas/${m.id}`, { method: 'DELETE' }); await loadList(); openMap(firstSrc()); } catch (x) { toast(x.message, 'error'); }
+  };
+  const swapImage = async ev => {
+    const f = ev.target.files?.[0];
+    ev.target.value = '';
+    if (!f) return;
+    try { const a = await uploadImage(f, 'world', tx('Atlas')); await patchMap(m.id, { image: a.ref }); } catch (x) { toast(x.message, 'error'); }
+  };
+  return html`<div class="w-side-tools">
+    <button type="button" class="btn tiny" onClick=${rename}>Renommer</button>
+    <button type="button" class="btn tiny" title="Une nouvelle image aux mêmes proportions : les lieux suivent" onClick=${() => imgRef.current?.click()}>Changer l'image</button>
+    <button type="button" class="btn tiny" disabled=${i <= 0} title="Monter" onClick=${() => moveBy(-1)}>↑</button>
+    <button type="button" class="btn tiny" disabled=${i >= maps.length - 1} title="Descendre" onClick=${() => moveBy(1)}>↓</button>
+    <button type="button" class="btn tiny danger ghost" onClick=${remove}>Retirer</button>
+    <input type="file" accept="image/png,image/jpeg,image/webp" hidden ref=${imgRef} onChange=${swapImage} />
+  </div>`;
+}
+
+function Side() {
+  const l = S.list;
+  const dm = dmList();
+  const cur = l.maps.find(m => m.id === S.src);
+  return html`<nav class="w-side">
+    <div class="w-side-head">Cartes</div>
+    ${l.world ? html`<div class=${`w-side-row ${S.src === WORLD ? 'on' : ''}`}>
+      <button type="button" class="w-side-item" onClick=${() => openMap(WORLD)}><span class="w-side-ico">🌍</span><span class="w-side-name">Carte du monde</span>${dm && !l.world.exists ? html`<small class="w-tag">vide</small>` : null}</button>
+    </div>` : null}
+    ${l.maps.map(m => html`<div key=${m.id} class=${`w-side-row ${S.src === m.id ? 'on' : ''}`}>
+      <button type="button" class="w-side-item" onClick=${() => openMap(m.id)}><span class="w-side-ico">🗺</span><span class="w-side-name">${m.name}</span>${dm && !m.known ? html`<small class="w-tag">cachée</small>` : null}</button>
+      ${dm ? html`<button type="button" class=${`icon-btn w-eye ${m.known ? 'on' : ''}`} title=${m.known ? 'Visible des joueurs : clic pour la cacher' : 'Cachée aux joueurs : clic pour la montrer'} onClick=${() => patchMap(m.id, { known: !m.known })}>${m.known ? '👁' : '—'}</button>` : null}
+    </div>`)}
+    ${dm && cur ? html`<${MapTools} m=${cur} />` : null}
+    ${dm ? html`<button type="button" class=${`btn small w-side-add ${S.newMap ? 'on' : ''}`} onClick=${() => { S.newMap = !S.newMap; refresh(); }}>+ Nouvelle carte</button>
+      ${S.newMap ? html`<${NewMap} />` : null}` : null}
+  </nav>`;
+}
+
 // ---------------------------------------------------------------- Barre du haut
 
 function TopBar() {
   const d = S.data;
   const dmRole = d?.role === 'dm';
+  const atlasMap = isAtlas();
   const [menu, setMenu] = useState(false);
   const toggle = id => {
     S.layers = { ...S.layers, [id]: !S.layers[id] };
@@ -582,6 +916,8 @@ function TopBar() {
     applyLayers();
     refresh();
   };
+  const toggleSide = () => { S.side = !S.side; if (!narrow()) LS.set('atlas.side', S.side); refresh(); };
+  const setMode = m => { S.mode = S.mode === m ? null : m; S.draft = m === 'zone' && S.mode ? [] : null; refresh(); };
   const writeMap = async () => {
     if (!confirm(tx('Écrire les noms corrigés dans le fichier .map ? Azgaar les montrera à la prochaine ouverture. La version précédente est gardée sur le serveur.'))) return;
     try {
@@ -591,30 +927,33 @@ function TopBar() {
       load();
     } catch (x) { toast(x.message, 'error'); }
   };
+  const ready = d && !d.missing;
   return html`<header class="w-top">
     <a class="w-home" href=${`/c/${CID}${AS ? `?as=${encodeURIComponent(AS)}` : ''}`} title="Retour aux fiches">⚔</a>
-    <div class="w-title"><b>${d?.name || 'Carte du monde'}</b>${d?.year ? html`<small>An ${d.year}${d.era ? ` · ${d.era}` : ''}</small>` : null}</div>
+    <button type="button" class=${`btn small w-side-btn ${S.side ? 'on' : ''}`} title="Les cartes" onClick=${toggleSide}>☰</button>
+    <div class="w-title"><b>${S.src ? mapName() : 'Atlas'}</b>${!atlasMap && d?.year ? html`<small>An ${d.year}${d.era ? ` · ${d.era}` : ''}</small>` : atlasMap ? html`<small>Atlas</small>` : null}</div>
     ${AS ? html`<span class="w-preview" title="Ce que voit un joueur, en lecture seule">👁 Vue joueur</span>` : null}
-    <${Search} />
+    ${ready ? html`<${Search} />` : null}
     <div class="grow"></div>
-    <div class="w-tools">
-      <button type="button" class="btn small" onClick=${() => setMenu(!menu)}>Calques</button>
+    ${ready ? html`<div class="w-tools">
+      ${!atlasMap ? html`<button type="button" class="btn small" onClick=${() => setMenu(!menu)}>Calques</button>` : null}
       ${dmRole ? html`
-        <button type="button" class=${`btn small ${S.mode === 'add' ? 'on' : ''}`} disabled=${S.playerView} title="Un lieu absent d'Azgaar : donjon, ruine, camp…" onClick=${() => { S.mode = S.mode === 'add' ? null : 'add'; refresh(); }}>+ Lieu</button>
-        <button type="button" class=${`btn small ${S.mode === 'party' ? 'on' : ''}`} disabled=${S.playerView} onClick=${() => { S.mode = S.mode === 'party' ? null : 'party'; refresh(); }}>⚑ Groupe</button>
-        <button type="button" class=${`btn small ${S.playerView ? 'on' : ''}`} title="Voir la carte comme les joueurs" onClick=${() => { S.playerView = !S.playerView; S.mode = null; refresh(); }}>${S.playerView ? 'Vue joueurs' : 'Vue MJ'}</button>
+        <button type="button" class=${`btn small ${S.mode === 'add' ? 'on' : ''}`} disabled=${S.playerView} title=${atlasMap ? 'Un lieu : une taverne, un temple, une porte…' : 'Un lieu absent d\'Azgaar : donjon, ruine, camp…'} onClick=${() => setMode('add')}>+ Lieu</button>
+        ${atlasMap ? html`<button type="button" class=${`btn small ${S.mode === 'zone' ? 'on' : ''}`} disabled=${S.playerView} title="Une zone cliquable : un quartier, une forêt, un domaine" onClick=${() => setMode('zone')}>+ Zone</button>` : null}
+        <button type="button" class=${`btn small ${S.mode === 'party' ? 'on' : ''}`} disabled=${S.playerView} onClick=${() => setMode('party')}>⚑ Groupe</button>
+        <button type="button" class=${`btn small ${S.playerView ? 'on' : ''}`} title="Voir la carte comme les joueurs" onClick=${() => { S.playerView = !S.playerView; S.mode = null; S.draft = null; refresh(); }}>${S.playerView ? 'Vue joueurs' : 'Vue MJ'}</button>
         ${d.mode === 'azgaar' ? html`<button type="button" class="btn small" disabled=${S.playerView} title="Réécrit les noms corrigés dans le fichier .map, pour Azgaar" onClick=${writeMap}>Écrire dans le .map</button>
           <a class="btn small" href=${W('/download')} download title="Télécharger le .map, avec les noms écrits">⤓ .map</a>` : null}
-        <button type="button" class="btn small" disabled=${S.playerView} title="Remplacer la carte : un .map d'Azgaar ou une image" onClick=${() => { S.mode = null; S.upload = true; refresh(); }}>Changer de carte</button>` : null}
+        ${!atlasMap ? html`<button type="button" class="btn small" disabled=${S.playerView} title="Remplacer la carte : un .map d'Azgaar ou une image" onClick=${() => { S.mode = null; S.upload = true; refresh(); }}>Changer de carte</button>` : null}` : null}
       <button type="button" class="btn small" title="Toute la carte" onClick=${() => setView(fullView())}>⤢</button>
-    </div>
-    ${menu ? html`<div class="w-layers" onPointerLeave=${() => setMenu(false)}>
+    </div>` : null}
+    ${menu && !atlasMap ? html`<div class="w-layers" onPointerLeave=${() => setMenu(false)}>
       ${LAYERS.map(([id, label]) => html`<label class="check"><input type="checkbox" checked=${!!S.layers[id]} onChange=${() => toggle(id)} /> ${label}</label>`)}
     </div>` : null}
   </header>`;
 }
 
-// ---------------------------------------------------------------- Envoi d'une carte
+// ---------------------------------------------------------------- Envoi d'une carte du monde
 
 // Une carte du monde : un fichier .map d'Azgaar (États, bourgs, provinces cliquables) ou une
 // simple image (les lieux s'ajoutent à la main). La couche de lore reste quand on change de carte.
@@ -622,6 +961,7 @@ function UploadWorld() {
   const [busy, setBusy] = useState(false);
   const mapRef = useRef(null);
   const imgRef = useRef(null);
+  const done = async () => { S.upload = false; S.svg = null; worldSvg = null; S.view = null; await loadList(); await load(); };
   const sendMap = async e => {
     const f = e.target.files?.[0];
     e.target.value = '';
@@ -629,8 +969,7 @@ function UploadWorld() {
     setBusy(true);
     try {
       await api(W(`/map?name=${encodeURIComponent(f.name)}`), { method: 'POST', raw: await f.text(), headers: { 'Content-Type': 'text/plain' } });
-      S.upload = false; S.svg = null; S.view = null;
-      await load();
+      await done();
     } catch (x) { toast(x.message, 'error'); } finally { setBusy(false); }
   };
   const sendImage = async e => {
@@ -639,10 +978,9 @@ function UploadWorld() {
     if (!f) return;
     setBusy(true);
     try {
-      const a = await api(`/api/c/${CID}/assets?kind=world&name=${encodeURIComponent(f.name)}`, { method: 'POST', raw: f, headers: { 'Content-Type': f.type || 'application/octet-stream' } });
+      const a = await uploadImage(f, 'world', '');
       await api(W('/image'), { method: 'POST', body: { ref: a.ref } });
-      S.upload = false; S.svg = null; S.view = null;
-      await load();
+      await done();
     } catch (x) { toast(x.message, 'error'); } finally { setBusy(false); }
   };
   return html`<div class="w-up">
@@ -659,7 +997,22 @@ function UploadWorld() {
       <button type="button" class="btn" disabled=${busy} onClick=${() => imgRef.current?.click()}>${busy ? 'Envoi…' : 'Envoyer une image'}</button>
       <input type="file" accept="image/png,image/jpeg,image/webp" hidden ref=${imgRef} onChange=${sendImage} />
     </div>
+    <p class="muted small">Une ville, une région ou un quartier va plutôt dans « + Nouvelle carte », dans le panneau des cartes.</p>
   </div>`;
+}
+
+function Pane() {
+  if (!S.src) {
+    return html`<div class="w-pane"><div class="join-card"><h1>Atlas</h1>
+      <p>${dmList() ? 'Aucune carte pour l\'instant. Ajoute une carte du monde ou une « Nouvelle carte » dans le panneau.' : 'Le MJ n\'a pas encore montré de carte.'}</p></div></div>`;
+  }
+  if (S.src === WORLD && (S.data?.missing || S.upload)) {
+    return html`<div class="w-pane"><div class="join-card w-upload"><h1>Carte du monde</h1>
+      ${S.data?.role === 'dm' ? html`<${UploadWorld} />` : html`<p>Le MJ n'a pas encore mis de carte du monde.</p>`}
+      ${S.upload ? html`<div class="row-btns"><button type="button" class="btn ghost" onClick=${() => { S.upload = false; refresh(); }}>Annuler</button></div>` : null}</div></div>`;
+  }
+  if (!S.data) return html`<div class="w-pane"><div class="boot">Chargement de la carte…</div></div>`;
+  return html`<${Stage} /><${Card} />`;
 }
 
 // ---------------------------------------------------------------- Coquille
@@ -667,32 +1020,38 @@ function UploadWorld() {
 function App() {
   useWorld();
   useEffect(() => {
-    load();
-    const k = e => { if (e.key === 'Escape') { if (S.mode) S.mode = null; else select(null); refresh(); } };
+    if (narrow()) S.side = false;
+    loadList().then(() => { if (S.list) openMap(firstSrc()); });
+    const timer = setInterval(poll, 12_000);
+    const vis = () => { if (!document.hidden) poll(); };
+    document.addEventListener('visibilitychange', vis);
+    const k = e => {
+      const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || '');
+      if (e.key === 'Escape') { if (S.mode) cancelMode(); else select(null); refresh(); return; }
+      const zoning = S.mode === 'zone' || S.mode?.startsWith('reshape:');
+      if (zoning && !typing && e.key === 'Enter') { e.preventDefault(); finishZone(); }
+      if (zoning && !typing && e.key === 'Backspace' && S.draft?.length) { e.preventDefault(); S.draft = S.draft.slice(0, -1); refresh(); }
+    };
     window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', vis); window.removeEventListener('keydown', k); };
   }, []);
   useEffect(() => {
-    if (S.data?.role === 'dm' && S.data.vault && !S.notes) api(W('/notes')).then(n => { S.notes = n; refresh(); }).catch(() => {});
+    if (S.data?.role === 'dm' && S.data.vault && !S.notes) api(`/api/c/${CID}/monde/notes`).then(n => { S.notes = n; refresh(); }).catch(() => {});
   }, [S.data]);
   if (S.error === 'login') {
-    return html`<div class="join"><div class="join-card"><h1>Carte du monde</h1><p>${token() ? 'Tu ne fais pas partie de cette campagne.' : 'Connecte-toi d\'abord à l\'application.'}</p><a class="btn primary" href="/">Mes campagnes</a></div></div>`;
+    return html`<div class="join"><div class="join-card"><h1>Atlas</h1><p>${token() ? 'Tu ne fais pas partie de cette campagne.' : 'Connecte-toi d\'abord à l\'application.'}</p><a class="btn primary" href="/">Mes campagnes</a></div></div>`;
   }
-  if (S.error) return html`<div class="join"><div class="join-card"><h1>Carte du monde</h1><p class="warn">${S.error}</p><button type="button" class="btn" onClick=${load}>Réessayer</button></div></div>`;
-  if (!S.data) return html`<div class="boot">Chargement de la carte…</div>`;
-  if (S.data.missing || S.upload) {
-    return html`<div class="join"><div class="join-card w-upload"><h1>Carte du monde</h1>
-      ${S.data.role === 'dm' ? html`<${UploadWorld} />` : html`<p>Le MJ n'a pas encore mis de carte du monde.</p>`}
-      <div class="row-btns">${S.upload ? html`<button type="button" class="btn ghost" onClick=${() => { S.upload = false; refresh(); }}>Annuler</button>` : null}<a class="btn ghost" href=${`/c/${CID}`}>Retour aux fiches</a></div></div></div>`;
-  }
-  return html`<div class=${`w-app ${S.sel ? 'with-card' : ''}`}>
+  if (S.error) return html`<div class="join"><div class="join-card"><h1>Atlas</h1><p class="warn">${S.error}</p><button type="button" class="btn" onClick=${() => { S.error = null; loadList().then(load); }}>Réessayer</button></div></div>`;
+  if (!S.list) return html`<div class="boot">Chargement de la carte…</div>`;
+  return html`<div class=${`w-app ${S.sel ? 'with-card' : ''} ${S.side ? 'side-open' : ''}`}>
     <${TopBar} />
     <main class="w-main">
-      <${Stage} />
-      <${Card} />
+      ${S.side ? html`<${Side} />` : null}
+      ${S.side && narrow() ? html`<div class="w-side-back" onClick=${() => { S.side = false; refresh(); }}></div>` : null}
+      <${Pane} />
     </main>
     ${S.notes ? html`<datalist id="w-notes">${S.notes.map(n => html`<option value=${n} />`)}</datalist>` : null}
-    <div class="w-toasts">${S.toasts.map(t => html`<div class=${`w-toast ${t.kind}`}>${t.text}</div>`)}</div>
+    <div class="w-toasts">${S.toasts.map(x => html`<div class=${`w-toast ${x.kind}`}>${x.text}</div>`)}</div>
   </div>`;
 }
 

@@ -317,6 +317,18 @@ export const MIGRATIONS = [
       }
     },
   },
+  {
+    id: 9,
+    name: 'Atlas : d\'autres cartes que le monde, une ville, une région, avec leurs lieux',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS atlas (
+          campaign_id TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, updated_at INTEGER,
+          PRIMARY KEY (campaign_id, id)
+        );
+      `);
+    },
+  },
 ];
 
 export function pendingMigrations(db) {

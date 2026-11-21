@@ -295,7 +295,7 @@ Open the map from the DM panel, or go to `/c/<campaign>/carte`. Everything here 
 
 - **Bestiary** (DM panel): copy a 5etools creature and edit it, or write a stat block in Markdown. Encounter difficulty is written as a label: Easy, Medium, Hard or Deadly.
 - **Kits** (DM panel): what the characters receive or lose, prepared before the session. **Apply** changes the sheet live; the player can't undo it, the DM can (**Undo kit**). Items a kit takes away either stay, are put away (they go to a new kit, to give back later) or are lost.
-- **World map** (`/c/<campaign>/monde`): an Azgaar `.map` file or any image, with places, DM notes and a text for the players.
+- **Atlas** (`/c/<campaign>/cartes`): the world map, an Azgaar `.map` file or any image, and the campaign's other maps, a city or a region, each an image with pins and zones. Every place has DM notes, a text for the players and clues to reveal one at a time.
 
 ## 7. Letting an AI work on the campaign directly
 

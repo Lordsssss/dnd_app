@@ -1,4 +1,4 @@
-// Contenu d'une campagne : images envoyées, bestiaire, carte du monde.
+// Contenu d'une campagne : images envoyées, bestiaire, carte du monde, atlas.
 import { HttpError, send } from '../http.js';
 import { ASSET_KINDS, PASTE_FOLDER, PASTE_MAX_BYTES, cleanFolder } from '../assets.js';
 import { isDmRole } from '../campaigns.js';
@@ -7,7 +7,7 @@ import { normalizeBeast, monsterToBeast } from '../../shared/bestiary.js';
 import crypto from 'node:crypto';
 
 export function registerContent(S) {
-  const { router, db, campaigns, assets, library, worlds, audit, guard, data5e, bridgeOf } = S;
+  const { router, db, campaigns, assets, library, worlds, atlas, audit, guard, data5e, bridgeOf } = S;
   const note = (ctx, cid, m, kind, action, detail = '') => audit.log({ kind, campaign: cid, action, detail, account: m.name, seat: 'MJ', ip: ctx.ip });
 
   // ------------------------------------------------------------ Images
@@ -254,5 +254,84 @@ export function registerContent(S) {
     if (!buf) throw new HttpError(404, 'Aucun fichier .map');
     const name = (campaigns.get(ctx.params.cid)?.name || 'monde').replace(/[^\w\- ]+/g, '').trim() || 'monde';
     return send(ctx.res, 200, buf, 'application/octet-stream', { 'Content-Disposition': `attachment; filename="${name}.map"` });
+  });
+
+  // ------------------------------------------------------------ Atlas : les autres cartes
+
+  const atlasNote = (ctx, m, action, detail = '') => audit.log({ kind: 'world', campaign: ctx.params.cid, action, detail, account: m.name, seat: 'MJ', ip: ctx.ip, mergeKey: `atlas|${action}|${detail}` });
+  const dmOf = m => isDmRole(m.role);
+
+  // Le panneau latéral : le monde s'il existe, puis les cartes. Les versions (v) permettent à la
+  // page de savoir, en interrogeant cette liste, qu'une carte a changé et qu'il faut la recharger.
+  router.get('/api/c/:cid/atlas', ctx => {
+    const m = guard.member(ctx);
+    const cid = ctx.params.cid;
+    const w = db.getWorld(cid);
+    const hasWorld = !!(w && (w.mapFile || w.image));
+    return {
+      role: dmOf(m) ? 'dm' : 'player',
+      world: hasWorld || dmOf(m) ? { exists: hasWorld, v: w?.updatedAt || 0 } : null,
+      maps: atlas.summaries(cid, dmOf(m)),
+    };
+  });
+  router.post('/api/c/:cid/atlas', async ctx => {
+    const m = guard.dm(ctx);
+    const b = await ctx.body();
+    const r = atlas.create(ctx.params.cid, { name: b.name, image: b.image, known: b.known });
+    atlasNote(ctx, m, 'Atlas : carte ajoutée', String(b.name || ''));
+    return r;
+  });
+  router.get('/api/c/:cid/atlas/:mid', ctx => {
+    const m = guard.member(ctx);
+    const v = atlas.view(ctx.params.cid, ctx.params.mid, dmOf(m) ? 'dm' : 'player');
+    return { ...v, vault: dmOf(m) && !!bridgeOf(ctx.params.cid)?.worldNotes };
+  });
+  router.patch('/api/c/:cid/atlas/:mid', async ctx => {
+    const m = guard.dm(ctx);
+    const b = await ctx.body();
+    const r = atlas.update(ctx.params.cid, ctx.params.mid, b || {});
+    atlasNote(ctx, m, 'Atlas : carte modifiée', ctx.params.mid);
+    return r;
+  });
+  router.delete('/api/c/:cid/atlas/:mid', ctx => {
+    const m = guard.dm(ctx);
+    const r = atlas.remove(ctx.params.cid, ctx.params.mid);
+    atlasNote(ctx, m, 'Atlas : carte retirée', ctx.params.mid);
+    return r;
+  });
+  router.post('/api/c/:cid/atlas/:mid/entity', async ctx => {
+    const m = guard.dm(ctx);
+    const b = await ctx.body();
+    const r = atlas.patchPlace(ctx.params.cid, ctx.params.mid, String(b.key || ''), b.patch || {});
+    atlasNote(ctx, m, 'Atlas : lieu modifié', `${ctx.params.mid} ${b.key || ''}`);
+    return r;
+  });
+  router.post('/api/c/:cid/atlas/:mid/place', async ctx => {
+    const m = guard.dm(ctx);
+    const b = await ctx.body();
+    const [r] = atlas.addPlaces(ctx.params.cid, ctx.params.mid, [{ ...b, x: b.x == null ? undefined : Number(b.x), y: b.y == null ? undefined : Number(b.y) }]);
+    atlasNote(ctx, m, 'Atlas : lieu ajouté', String(b.name || ''));
+    return r;
+  });
+  // Plusieurs lieux d'un coup : un plan préparé ailleurs (quartiers, lieux numérotés).
+  router.post('/api/c/:cid/atlas/:mid/places', async ctx => {
+    const m = guard.dm(ctx);
+    const b = await ctx.body();
+    const list = Array.isArray(b?.places) ? b.places : [];
+    if (!list.length) throw new HttpError(400, 'Aucun lieu');
+    const r = atlas.addPlaces(ctx.params.cid, ctx.params.mid, list);
+    atlasNote(ctx, m, 'Atlas : lieux importés', `${ctx.params.mid} · ${r.length}`);
+    return r;
+  });
+  router.delete('/api/c/:cid/atlas/:mid/place/:key', ctx => {
+    const m = guard.dm(ctx);
+    const r = atlas.removePlace(ctx.params.cid, ctx.params.mid, ctx.params.key);
+    atlasNote(ctx, m, 'Atlas : lieu retiré', `${ctx.params.mid} ${ctx.params.key}`);
+    return r;
+  });
+  router.post('/api/c/:cid/atlas/:mid/party', async ctx => {
+    guard.dm(ctx);
+    const b = await ctx.body();
+    return atlas.setParty(ctx.params.cid, ctx.params.mid, b.clear ? null : { x: Number(b.x), y: Number(b.y), known: b.known !== false, label: b.label });
   });
 }

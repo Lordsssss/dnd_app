@@ -54,7 +54,7 @@ function useStore() {
 
 // ---------------------------------------------------------------- Barre du haut des fiches
 
-// Dans une vue joueur, les liens vers la carte et le monde gardent le joueur regardé.
+// Dans une vue joueur, les liens vers la carte et l'atlas gardent le joueur regardé.
 const asQuery = () => (viewAs() ? `?as=${encodeURIComponent(viewAs())}` : '');
 
 // Le MJ ouvre la campagne comme un de ses joueurs la voit, en lecture seule, dans un autre onglet.
@@ -92,7 +92,6 @@ function Menu({ onClose }) {
     <div class="menu" onClick=${e => e.stopPropagation()}>
       ${isDm() ? html`<a class="menu-link" href=${`/c/${cid}/mj`} onClick=${e => { onClose(); linkClick(e); }}>${Icon.scroll()} ${t('Panneau MJ')}</a>
         <a class="menu-link" href=${`/c/${cid}/mj/journal`} onClick=${e => { onClose(); linkClick(e); }}>${Icon.list()} ${t('Journal des actions')}</a>` : null}
-      <a class="menu-link" href=${`/c/${cid}/monde${asQuery()}`} target=${`monde-${cid}`} rel="noopener" onClick=${onClose}>${Icon.globe()} ${t('Carte du monde')}</a>
       <button type="button" onClick=${() => { onClose(); openModal({ kind: 'compendium' }); }}>${Icon.book()} ${t('Compendium 5etools')}</button>
       ${store.view.charId ? html`<button type="button" onClick=${() => { onClose(); openModal({ kind: 'settings', id: store.view.charId }); }}>${Icon.gear()} ${t('Réglages de la fiche / JSON')}</button>` : null}
       ${!isDm() ? html`<button type="button" onClick=${() => { onClose(); openModal({ kind: 'newChar' }); }}>${Icon.plus()} ${t('Nouveau personnage')}</button>` : null}
@@ -146,6 +145,7 @@ function TopBar({ children }) {
     <div class="tb-row pages">
       ${pages.map(([k, label]) => html`<button type="button" key=${k} class=${`page-tab ${k === page ? 'on' : ''} ${k === 'secret' ? 'secret' : ''}`} onClick=${() => setView({ page: k })}>${k === 'secret' ? html`${Icon.lock()} ` : ''}${label()}</button>`)}
       ${isDm() ? null : html`<a class="page-tab map-tab" href=${`/c/${cid}/carte/joueur${asQuery()}`} target=${`joueur-${cid}${viewAs() ? `-${viewAs()}` : ''}`} rel="noopener" title=${t('Ouvre la carte de la table dans un nouvel onglet')}>${Icon.map()} ${t('Carte')} ↗</a>`}
+      <a class="page-tab map-tab" href=${`/c/${cid}/cartes${asQuery()}`} target=${`atlas-${cid}${viewAs() ? `-${viewAs()}` : ''}`} rel="noopener" title=${t('Ouvre l\'atlas dans un nouvel onglet : la carte du monde, les villes, les régions')}>${Icon.globe()} ${t('Atlas')} ↗</a>
     </div>
     ${children}
     ${menu ? html`<${Menu} onClose=${() => setMenu(false)} />` : null}

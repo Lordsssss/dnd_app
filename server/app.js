@@ -16,6 +16,7 @@ import { AssetStore, Library } from './assets.js';
 import { createAudit } from './audit.js';
 import { createMapServer } from './map/index.js';
 import { Worlds } from './worlds.js';
+import { Atlas } from './atlas.js';
 import { WorldError } from './world.js';
 import { createBridge } from './bridge.js';
 import { createSheetHub } from './ws.js';
@@ -44,6 +45,7 @@ const PAGES = [
   [/^\/c\/[\w-]+\/carte\/joueur\/?$/, 'joueur.html'],
   [/^\/c\/[\w-]+\/carte\/?$/, 'carte.html'],
   [/^\/c\/[\w-]+\/monde\/?$/, 'monde.html'],
+  [/^\/c\/[\w-]+\/cartes(\/[\w-]+)?\/?$/, 'monde.html'],
 ];
 
 export function createApp({ engine, db, cfg, data5e }) {
@@ -69,6 +71,13 @@ export function createApp({ engine, db, cfg, data5e }) {
     return b;
   }
   const worlds = new Worlds(db, filesDir, { bridgeOf });
+  const atlas = new Atlas(db, {
+    validNote: (cid, rel) => bridgeOf(cid)?.worldNotes?.valid(rel) || null,
+    assetOk: (cid, ref) => {
+      const a = ref.startsWith('asset:') ? db.getAsset(ref.slice(6)) : null;
+      return a && a.campaign === cid ? { width: a.width, height: a.height } : null;
+    },
+  });
   function resetBridge(cid) { bridgeCache.delete(cid); worlds.forget(cid); }
 
   // ------------------------------------------------------------ Authentification
@@ -191,7 +200,7 @@ export function createApp({ engine, db, cfg, data5e }) {
 
   const router = new Router();
   const shared = {
-    db, engine, cfg, data5e, campaigns, assets, library, worlds, audit, guard, router,
+    db, engine, cfg, data5e, campaigns, assets, library, worlds, atlas, audit, guard, router,
     bridgeOf, resetBridge, rateLimit, clearRate, newSession, cookieFor, joinUrl, accountOfToken,
     checkPin, dummyHash: DUMMY_HASH, backupDir, dataDir,
     kick: () => {}, // remplacé plus bas, une fois le canal des fiches créé
@@ -279,7 +288,7 @@ export function createApp({ engine, db, cfg, data5e }) {
   });
   server.on('close', () => { hub.close(); map.close(); });
 
-  return { server, map, hub, audit, campaigns, assets, worlds, bridgeOf, router };
+  return { server, map, hub, audit, campaigns, assets, worlds, atlas, bridgeOf, router };
 }
 
 export { send };

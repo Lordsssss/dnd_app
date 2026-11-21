@@ -50,7 +50,7 @@ export function DmPage({ cid, tab }) {
   return html`<div class="app-page">
     <${AppHeader} back=${{ href: `/c/${cid}`, label: t('Fiches') }} title=${o?.campaign.name || '…'}>
       <a class="btn small ghost" href=${`/c/${cid}/carte`} target=${`carte-${cid}`} rel="noopener">${Icon.map()} ${t('Carte')}</a>
-      <a class="btn small ghost" href=${`/c/${cid}/monde`} target=${`monde-${cid}`} rel="noopener">${Icon.globe()} ${t('Monde')}</a>
+      <a class="btn small ghost" href=${`/c/${cid}/cartes`} target=${`atlas-${cid}`} rel="noopener">${Icon.globe()} ${t('Atlas')}</a>
     <//>
     <div class="app-body">
       <nav class="side-tabs">
