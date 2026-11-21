@@ -140,8 +140,6 @@ body.world-page { margin: 0; overflow: hidden; background: var(--bg); color: var
 .w-side-ico { flex: none; width: 20px; text-align: center; }
 .w-side-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .w-tag { flex: none; padding: 1px 6px; border-radius: 4px; background: var(--paper-3); color: var(--ink-3); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
-.w-eye { flex: none; width: 30px; opacity: .6; }
-.w-eye.on { opacity: 1; }
 .w-side-tools { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 4px 4px; padding-top: 8px; border-top: 1px dashed var(--line); }
 .w-side-add { margin: 10px 4px 4px; }
 .w-newmap { display: grid; gap: 6px; margin: 4px; }
@@ -153,22 +151,9 @@ body.world-page { margin: 0; overflow: hidden; background: var(--bg); color: var
 
 /* Les lieux d'une carte de l'atlas : zones cliquables, points numérotés ou en losange. */
 .w-area path { fill: transparent; stroke: transparent; stroke-linejoin: round; }
-.w-area.hidden path { stroke: rgba(70, 70, 80, .55); fill: rgba(70, 70, 80, .07); }
 .w-area:hover path { fill: rgba(255, 250, 230, .16); stroke: rgba(60, 40, 20, .55); }
 .w-area.sel path { fill: rgba(228, 7, 18, .08); stroke: #b0000a; }
-.w-area-name, .w-pin-name {
-  fill: #26262e; stroke: rgba(245, 240, 228, .9); paint-order: stroke; stroke-linejoin: round;
-  font-family: "Almendra SC", Georgia, serif; pointer-events: none;
-}
-.w-area-name { text-anchor: middle; letter-spacing: .06em; }
-.w-pin circle { fill: #7a1f1f; stroke: #f4ecd8; }
-.w-pin path { fill: #c0392b; stroke: #fff; }
 .w-pin-num { fill: #f4ecd8; text-anchor: middle; font-weight: 700; font-family: Georgia, serif; pointer-events: none; }
-.w-pin.hidden circle, .w-pin.hidden path { opacity: .55; stroke-dasharray: 3 2; }
-.w-pin.hidden .w-pin-name { opacity: .7; font-style: italic; }
-.w-pin:hover circle, .w-pin:hover path { stroke: #ffd24a; }
-.w-over .w-pin.sel circle, .w-over .w-pin.sel path { stroke: #ffd24a; fill: #b0000a; }
-.w-over .w-pin.sel .w-pin-num { fill: #fff; }
 .w-draft polyline { fill: rgba(228, 7, 18, .08); stroke: #b0000a; stroke-dasharray: 6 4; }
 .w-draft circle { fill: #fff; stroke: #b0000a; }
 .w-stage.atlas { background: #cfc8ba; }
@@ -184,17 +169,10 @@ body.world-page { margin: 0; overflow: hidden; background: var(--bg); color: var
 .w-facts-list li { position: relative; padding: 7px 10px 7px 26px; border-radius: 8px; background: var(--paper-2); font-size: 14px; line-height: 1.4; }
 .w-facts-list li::before { content: '◆'; position: absolute; left: 9px; top: 8px; font-size: 10px; color: var(--gold); }
 .w-facts-list li p { margin: 0; }
-.w-pview { margin: 14px 0 4px; padding: 10px 12px; border: 1.5px solid rgba(90, 169, 255, .45); border-radius: 10px; background: rgba(90, 169, 255, .06); }
-.w-pview.off { border-style: dashed; border-color: var(--line); background: none; }
 .w-pview > header { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }
-.w-pview > header b { font: 800 11px var(--f-lab); text-transform: uppercase; letter-spacing: .06em; color: var(--blue); }
-.w-pview.off > header b { color: var(--ink-3); }
-.w-pview .w-pub { margin: 6px 0; background: var(--paper); }
-.w-pview .w-facts-list li { background: var(--paper); }
 .w-facts-edit { display: grid; gap: 6px; }
 .w-facts-edit .w-field small { text-transform: none; letter-spacing: 0; font-weight: 500; }
 .w-fact-row { display: grid; grid-template-columns: auto 1fr auto; gap: 6px; align-items: start; }
-.w-fact-row input[type="checkbox"] { margin-top: 8px; width: 18px; height: 18px; }
 .w-fact-row .txt { font: 500 14px var(--f-val); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; background: var(--paper-2); padding: 6px 8px; resize: vertical; line-height: 1.35; }
 .w-facts-edit > .btn { justify-self: start; }
 .w-row2 { display: grid; grid-template-columns: 1fr 90px; gap: 8px; }
@@ -207,3 +185,71 @@ body.world-page { margin: 0; overflow: hidden; background: var(--bg); color: var
 .w-card { overflow-x: hidden; }
 .w-field .txt, .w-fact-row .txt { width: 100%; box-sizing: border-box; min-width: 0; }
 .w-row2 > *, .w-fact-row > * { min-width: 0; }
+
+/* Rework 2 : lisibilité. Les noms sur la carte sont des pastilles : texte clair sur fond sombre. */
+.w-chip rect { fill: rgba(20, 17, 14, .9); stroke: rgba(255, 250, 240, .75); }
+.w-chip text { fill: #fffaf0; font-family: system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-weight: 600; pointer-events: none; }
+.w-chip.hidden rect { fill: rgba(246, 246, 248, .96); stroke: #4d4d55; }
+.w-chip.hidden text { fill: #33333a; }
+.w-chip-tag { font-style: italic; font-weight: 700; fill: #9b1c1c; }
+.w-chip.sel rect { fill: #b0000a; stroke: #ffd24a; }
+.w-chip.sel text, .w-chip.sel .w-chip-tag { fill: #fff; }
+.w-pin circle, .w-pin path { fill: #8b1e1e; stroke: #fff; }
+.w-pin.hidden circle, .w-pin.hidden path { fill: #8a8f98; stroke: #fff; }
+.w-pin:hover circle, .w-pin:hover path { stroke: #ffd24a; }
+.w-over .w-pin.sel circle, .w-over .w-pin.sel path { stroke: #ffd24a; fill: #b0000a; }
+.w-pin-num { fill: #fff; }
+.w-area.hidden path { stroke: #4d4d55; fill: rgba(70, 70, 80, .16); }
+
+/* Les interrupteurs : allumé, vert plein ; éteint, pointillé gris. Le mot est toujours écrit. */
+.w-switch {
+  display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; cursor: pointer;
+  font: 700 14px system-ui, "Segoe UI", Roboto, sans-serif; line-height: 1.1; border: 2px solid transparent; white-space: nowrap;
+}
+.w-switch.on { background: #1d7a3e; border-color: #1d7a3e; color: #fff; }
+.w-switch.off { background: transparent; border: 2px dashed #8a8f98; color: var(--ink-2); }
+.w-switch-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; box-sizing: border-box; }
+.w-switch.on .w-switch-dot { background: #fff; }
+.w-switch.off .w-switch-dot { border: 2px solid #8a8f98; }
+.w-switch.small { padding: 4px 10px; font-size: 12.5px; gap: 6px; }
+.w-switch.small .w-switch-dot { width: 9px; height: 9px; }
+.w-switch:hover { filter: brightness(1.1); }
+.w-card > .w-switch { width: 100%; justify-content: center; margin: 12px 0 2px; padding: 11px 14px; font-size: 15px; }
+.w-side-row .w-switch { flex: none; margin-right: 4px; }
+.w-edit > .w-switch { justify-self: start; }
+
+/* Vue MJ ou joueurs, taille des noms : deux boutons collés, celui qui est actif en clair. */
+.w-seg { display: inline-flex; border: 1px solid rgba(255, 240, 210, .35); border-radius: 8px; overflow: hidden; }
+.w-seg button { border: 0; padding: 7px 11px; background: var(--bar-2); color: var(--bar-ink); font: 700 12.5px system-ui, sans-serif; cursor: pointer; }
+.w-seg button + button { border-left: 1px solid rgba(255, 240, 210, .25); }
+.w-seg button.on { background: #f3ead6; color: #2a2118; }
+.w-seg button:disabled { opacity: .4; cursor: default; }
+
+/* La fiche : plus gros, plus contrasté. Ce que les joueurs lisent est sur parchemin. */
+.w-card { font-size: 15px; line-height: 1.45; }
+.w-card h2 { font-size: 27px; }
+.w-kind { font-size: 12px; color: var(--ink-2); }
+.w-field { font: 700 12.5px system-ui, "Segoe UI", sans-serif; text-transform: none; letter-spacing: .01em; color: var(--ink-2); }
+.w-field .txt, .w-fact-row .txt { font-size: 15px; padding: 8px 10px; }
+.w-pub, .w-facts-list li { background: #f3ead6; color: #2a2118; }
+.w-pub { border: 1px solid #d9c7a0; }
+.w-facts-list li::before { color: #8b1e1e; }
+.w-pub .wl, .w-facts-list .wl { color: #7a4f12; }
+.w-pview { margin: 12px 0 4px; padding: 10px 12px 12px; border: 2px solid #c9b48a; border-radius: 12px; background: #e9dcc0; color: #2a2118; }
+.w-pview > header { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+.w-pview > header b { font: 800 12px system-ui, sans-serif; text-transform: uppercase; letter-spacing: .06em; color: #6b4f1d; }
+.w-pview .w-pub { background: #fbf6ea; }
+.w-pview .w-facts-list li { background: #fbf6ea; }
+.w-pview .muted { color: #6b5a40; }
+.w-pview.off { background: transparent; border: 2px dashed var(--line); color: var(--ink-2); }
+.w-pview.off > header b { color: var(--ink-2); }
+.w-pview-none { margin: 2px 0 0; font-style: italic; }
+.w-pview-more { margin: 8px 0 0; font-size: 13px; font-weight: 600; color: #6b4f1d; }
+.w-fact-row { padding: 6px 6px 6px 8px; border-radius: 10px; border-left: 4px solid transparent; }
+.w-fact-row.on { background: rgba(29, 122, 62, .14); border-left-color: #1d7a3e; }
+.w-fact-row.off { background: rgba(138, 143, 152, .1); border-left-color: #8a8f98; }
+.w-fact-row .w-switch { margin-top: 5px; min-width: 96px; }
+.w-fact-row { display: grid; grid-template-columns: 1fr; gap: 6px; }
+.w-fact-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.w-fact-row .w-switch { margin-top: 0; }
+@media (min-width: 761px) { .w-card { width: min(420px, 100%); } }

@@ -30,6 +30,9 @@ async function api(path, { method = 'GET', body, raw, headers = {} } = {}) {
   return data;
 }
 
+// Le thème clair ou sombre choisi sur la page des fiches.
+try { const th = String(localStorage.getItem('theme') || '').replace(/"/g, ''); if (th && th !== 'null') document.documentElement.setAttribute('data-theme', th); } catch { /* stockage indisponible */ }
+
 // La langue choisie sur la page des fiches.
 try { setLang(JSON.parse(localStorage.getItem('lang')) || 'fr'); } catch { /* stockage indisponible */ }
 
@@ -72,6 +75,7 @@ const S = {
   mode: null, draft: null, playerView: false, notes: null, toasts: [], upload: false,
   // L'atlas : la liste des cartes, celle qui est ouverte, sa version chargée.
   list: null, src: null, loadedV: null, side: LS.get('atlas.side', true), newMap: false,
+  labelStep: LS.get('atlas.labels', typeof window !== 'undefined' && window.innerWidth <= 760 ? 1 : 2),
 };
 // Le SVG du monde est lourd : gardé quand on passe à une autre carte.
 let worldSvg = null;
@@ -150,7 +154,10 @@ async function load() {
     if (data.mode === 'image') S.svg = null;
     S.error = null;
     S.loadedV = data.v ?? versionOf(src);
-    if (!S.view && data && !data.missing) S.view = LS.get(viewKey(), null) || fullView(data);
+    if (!S.view && data && !data.missing) {
+      const saved = LS.get(viewKey(), null);
+      S.view = saved && S.size.w > 1 ? clampView(saved, data) : saved || fullView(data);
+    }
     if (S.sel && S.sel !== 'party' && !entities().has(S.sel)) S.sel = null;
     document.title = `${mapName()} · ${tx('Atlas')}`;
   } catch (e) {
@@ -212,10 +219,17 @@ function fitAspect(v) {
   const r = S.size.h / S.size.w;
   return { ...v, h: v.w * r };
 }
+// La vue reste sur la carte : au plus loin, toute la carte, centrée ; sur un axe où la carte
+// est plus petite que l'écran, elle reste au milieu ; sinon ses bords ne quittent pas l'écran.
+function clampView(v, d = S.data) {
+  const full = fullView(d);
+  const w = Math.max(d.width / 40, Math.min(full.w, v.w));
+  const h = w * (S.size.h / S.size.w);
+  const fit = (pos, span, total) => (span >= total ? (total - span) / 2 : Math.max(0, Math.min(total - span, pos)));
+  return { x: fit(v.x, w, d.width), y: fit(v.y, h, d.height), w, h };
+}
 function setView(v) {
-  const d = S.data;
-  const w = Math.max(d.width / 40, Math.min(d.width * 1.6, v.w));
-  S.view = fitAspect({ x: v.x, y: v.y, w });
+  S.view = clampView(v);
   LS.set(viewKey(), S.view);
   applyBaseView();
   refresh();
@@ -247,31 +261,114 @@ function posOf(e) {
 
 const polyPath = pts => `M${pts.map(p => `${p[0]},${p[1]}`).join(' L')} Z`;
 
+// La taille des noms sur la carte, réglable (A− / A+) et gardée par appareil : une télé, un
+// téléphone et un portable ne lisent pas à la même distance.
+const LABEL_STEPS = [0.85, 1, 1.2, 1.45, 1.75];
+const labelScale = () => LABEL_STEPS[S.labelStep] ?? 1;
+const measureCtx = typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null;
+const widths = new Map();
+const CHIP_FONT = 'system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+function textWidth(text, px) {
+  const key = `${px}|${text}`;
+  if (!widths.has(key)) {
+    measureCtx.font = `600 ${px}px ${CHIP_FONT}`;
+    widths.set(key, measureCtx.measureText(text).width);
+  }
+  return widths.get(key);
+}
+
+// Une étiquette lisible sur n'importe quel fond : texte clair sur une pastille sombre, à taille
+// fixe à l'écran. Cachée aux joueurs : pastille claire, bord pointillé, et le mot « caché ».
+function chipSize(name, hidden, k) {
+  const sc = labelScale();
+  const px = 15 * sc;
+  const padX = 8 * sc;
+  const tag = hidden ? ` · ${tx('caché')}` : '';
+  return { w: (textWidth(name + tag, px) + padX * 2) * k, h: 25 * sc * k, px, padX, tag };
+}
+function chip(left, cy, name, k, { hidden = false, sel = false } = {}) {
+  const { w, h, px, padX, tag } = chipSize(name, hidden, k);
+  return html`<g class=${`w-chip ${hidden ? 'hidden' : ''} ${sel ? 'sel' : ''}`}>
+    <rect x=${left} y=${cy - h / 2} width=${w} height=${h} rx=${7 * k} stroke-width=${1.5 * k}
+      stroke-dasharray=${hidden ? `${5 * k} ${3 * k}` : null} />
+    <text x=${left + padX * k} y=${cy + px * 0.36 * k} font-size=${px * k}>${name}${tag ? html`<tspan class="w-chip-tag">${tag}</tspan>` : null}</text>
+  </g>`;
+}
+
+// Où poser le nom d'un point sans recouvrir un autre nom ni un autre point : à droite, à gauche,
+// au-dessus, en dessous… Le premier endroit libre gagne ; sans place, le nom attend qu'on zoome.
+function placeLabels(pins, zones, k) {
+  const boxes = [];
+  const v = S.view;
+  const inView = b => b.x0 >= v.x && b.x1 <= v.x + v.w && b.y0 >= v.y && b.y1 <= v.y + v.h;
+  const free = b => inView(b) && !boxes.some(o => b.x0 < o.x1 && b.x1 > o.x0 && b.y0 < o.y1 && b.y1 > o.y0);
+  const out = new Map();
+  for (const a of pins) boxes.push({ x0: a.x - a.r, y0: a.y - a.r, x1: a.x + a.r, y1: a.y + a.r });
+  for (const z of zones) {
+    const { w, h } = chipSize(z.name, !z.known, k);
+    const b = { x0: z.x - w / 2, y0: z.y - h / 2, x1: z.x + w / 2, y1: z.y + h / 2 };
+    boxes.push(b);
+    out.set(z.key, { left: b.x0, cy: z.y });
+  }
+  const g = 5 * k;
+  const order = [...pins].sort((p, q) => (q.key === S.sel) - (p.key === S.sel) || (q.known - p.known) || (Number(p.num) || 999) - (Number(q.num) || 999));
+  for (const a of order) {
+    const { w, h } = chipSize(a.name, !a.known, k);
+    const { x, y, r } = a;
+    const spots = [
+      [x + r + g, y], [x - r - g - w, y],
+      [x - w / 2, y - r - g - h / 2], [x - w / 2, y + r + g + h / 2],
+      [x + r * 0.7, y - r - h / 2], [x + r * 0.7, y + r + h / 2],
+      [x - r * 0.7 - w, y - r - h / 2], [x - r * 0.7 - w, y + r + h / 2],
+      [x + r + g, y - h - g], [x + r + g, y + h + g], [x - r - g - w, y - h - g], [x - r - g - w, y + h + g],
+    ];
+    let pick = null;
+    for (const [left, cy] of spots) {
+      const b = { x0: left, y0: cy - h / 2, x1: left + w, y1: cy + h / 2 };
+      if (free(b)) { pick = { left, cy, b }; break; }
+    }
+    if (!pick && a.key === S.sel) pick = { left: spots[0][0], cy: y, b: { x0: spots[0][0], y0: y - h / 2, x1: spots[0][0] + w, y1: y + h / 2 } };
+    if (!pick) continue;
+    boxes.push(pick.b);
+    out.set(a.key, { left: pick.left, cy: pick.cy });
+  }
+  return out;
+}
+
 // Les lieux d'une carte de l'atlas : les zones d'abord (un quartier, une forêt), cliquables sur
-// toute leur surface, puis les points par-dessus, numérotés ou en losange.
+// toute leur surface, puis les points par-dessus, numérotés ou en losange, puis leurs noms.
 function atlasItems(k) {
   const d = S.data;
   const sel = S.sel;
+  const sc = labelScale();
   const items = [];
   const list = d.added.filter(shown);
-  for (const a of list.filter(x => x.shape)) {
+  const zones = list.filter(x => x.shape);
+  const pins = list.filter(x => !x.shape).map(a => ({ ...a, r: 11 * sc * k }));
+  const named = zones.filter(a => a.label !== false || !a.known || sel === a.key);
+  const spots = placeLabels(pins.filter(a => a.label !== false || a.key === sel), named, k);
+  for (const a of zones) {
     items.push(html`<g key=${a.key} class=${`w-area ${a.known ? 'known' : 'hidden'} ${sel === a.key ? 'sel' : ''}`} data-key=${a.key}>
       <title>${a.name}</title>
-      ${a.shape.map((poly, i) => html`<path key=${i} d=${polyPath(poly)} stroke-width=${2 * k} stroke-dasharray=${a.known ? null : `${7 * k} ${5 * k}`} />`)}
-      ${a.label !== false ? html`<text class="w-area-name" x=${a.x} y=${a.y} font-size=${14 * k} stroke-width=${3.5 * k}>${a.name}</text>` : null}
+      ${a.shape.map((poly, i) => html`<path key=${i} d=${polyPath(poly)} stroke-width=${(a.known ? 2.5 : 3) * k} stroke-dasharray=${a.known ? null : `${9 * k} ${6 * k}`} />`)}
     </g>`);
   }
-  for (const a of list.filter(x => !x.shape)) {
-    const r = 9.5 * k;
+  for (const a of pins) {
+    const { r } = a;
     const num = String(a.num || '');
     items.push(html`<g key=${a.key} class=${`w-pin ${a.known ? 'known' : 'hidden'} ${num ? 'num' : ''} ${sel === a.key ? 'sel' : ''}`} data-key=${a.key}>
       <title>${a.name}</title>
       ${num
-        ? html`<circle cx=${a.x} cy=${a.y} r=${r} stroke-width=${1.8 * k} />
-          <text class="w-pin-num" x=${a.x} y=${a.y + (num.length > 2 ? 3 : 4) * k} font-size=${(num.length > 2 ? 8.5 : 11) * k}>${num}</text>`
-        : html`<path d=${`M${a.x},${a.y - r} L${a.x + r},${a.y} L${a.x},${a.y + r} L${a.x - r},${a.y} Z`} stroke-width=${1.6 * k} />`}
-      ${a.label !== false ? html`<text class="w-pin-name" x=${a.x + r + 4 * k} y=${a.y + 4.5 * k} font-size=${13 * k} stroke-width=${3.5 * k}>${a.name}</text>` : null}
+        ? html`<circle cx=${a.x} cy=${a.y} r=${r} stroke-width=${2.2 * k} stroke-dasharray=${a.known ? null : `${4 * k} ${3 * k}`} />
+          <text class="w-pin-num" x=${a.x} y=${a.y + (num.length > 2 ? 3.6 : 4.6) * sc * k} font-size=${(num.length > 2 ? 10 : 13) * sc * k}>${num}</text>`
+        : html`<path d=${`M${a.x},${a.y - r} L${a.x + r},${a.y} L${a.x},${a.y + r} L${a.x - r},${a.y} Z`} stroke-width=${2 * k} stroke-dasharray=${a.known ? null : `${4 * k} ${3 * k}`} />`}
     </g>`);
+  }
+  // Les noms par-dessus tout, chacun cliquable comme son lieu.
+  for (const a of [...named, ...pins]) {
+    const at = spots.get(a.key);
+    if (!at) continue;
+    items.push(html`<g key=${`n-${a.key}`} class="w-name" data-key=${a.key}>${chip(at.left, at.cy, a.name, k, { hidden: !a.known, sel: sel === a.key })}</g>`);
   }
   // La zone en cours de tracé.
   if (S.draft?.length) {
@@ -302,7 +399,7 @@ function Overlay() {
       // Un lieu connu des joueurs, ou sélectionné, se voit à tout zoom.
       if (z < (MIN_ZOOM[g] ?? 3) && !b.known && sel !== b.key && !(g === 'capital')) continue;
       const r = (ICON_PX[g] || 3.5) * k * (b.known && isDm() ? 1.1 : 1);
-      const fs = (FONT_PX[g] || 10.5) * k;
+      const fs = (FONT_PX[g] || 10.5) * k * labelScale();
       const showLabel = g === 'capital' || z >= (MIN_ZOOM[g] ?? 3) * LABEL_FACTOR || b.known || sel === b.key;
       items.push(html`<g key=${b.key} class=${`w-burg g-${g} ${b.known ? 'known' : ''} ${sel === b.key ? 'sel' : ''}`} data-key=${b.key}>
         ${g === 'capital'
@@ -314,7 +411,7 @@ function Overlay() {
     for (const l of d.lakes) {
       if (!shown(l) || !inView(l) || (z < 1.5 && !l.known && sel !== l.key)) continue;
       items.push(html`<g key=${l.key} class=${`w-lake ${sel === l.key ? 'sel' : ''}`} data-key=${l.key}>
-        <text x=${l.x} y=${l.y} font-size=${11 * k} stroke-width=${3 * k}>${l.name}</text>
+        <text x=${l.x} y=${l.y} font-size=${11 * k * labelScale()} stroke-width=${3 * k}>${l.name}</text>
       </g>`);
     }
     for (const a of d.added) {
@@ -323,7 +420,7 @@ function Overlay() {
       const r = 6 * k;
       items.push(html`<g key=${a.key} class=${`w-added ${a.known ? 'known' : ''} ${sel === a.key ? 'sel' : ''}`} data-key=${a.key}>
         <path d=${`M${a.x},${a.y - r} L${a.x + r},${a.y} L${a.x},${a.y + r} L${a.x - r},${a.y} Z`} stroke-width=${1.4 * k} />
-        <text x=${a.x} y=${a.y - r - 3 * k} font-size=${12 * k} stroke-width=${3 * k}>${a.name}</text>
+        <text x=${a.x} y=${a.y - r - 3 * k} font-size=${12 * k * labelScale()} stroke-width=${3 * k}>${a.name}</text>
       </g>`);
     }
   }
@@ -378,15 +475,15 @@ function Stage() {
       const first = prev.w === 1;
       S.size = { w: Math.max(1, r.width), h: Math.max(1, r.height) };
       if (S.view) {
-        if (first) S.view = LS.get(viewKey(), null) ? fitAspect(S.view) : fullView();
+        if (first) S.view = LS.get(viewKey(), null) ? clampView(S.view) : fullView();
         else if (prev.w !== S.size.w || prev.h !== S.size.h) {
           const k = S.view.w / prev.w;
           const cx = S.view.x + S.view.w / 2;
           const cy = S.view.y + S.view.h / 2;
           const w = k * S.size.w;
           const h = w * (S.size.h / S.size.w);
-          S.view = { x: cx - w / 2, y: cy - h / 2, w, h };
-        }
+          S.view = clampView({ x: cx - w / 2, y: cy - h / 2, w, h });
+        } else S.view = clampView(S.view);
         applyBaseView();
       }
       refresh();
@@ -628,16 +725,23 @@ function PlayerBody({ e }) {
     ${empty ? html`<p class="muted small">Le groupe n'en sait pas plus.</p>` : null}`;
 }
 
-function PlayerPreview({ e, kind, keyId }) {
+// Un interrupteur qu'on lit d'un coup d'œil : allumé, vert plein ; éteint, pointillé gris. Le mot
+// est toujours écrit, la couleur ne fait que le confirmer.
+function Switch({ on, onClick, onLabel, offLabel, title, small = false }) {
+  return html`<button type="button" class=${`w-switch ${on ? 'on' : 'off'} ${small ? 'small' : ''}`} aria-pressed=${on ? 'true' : 'false'} title=${title} onClick=${onClick}>
+    <span class="w-switch-dot"></span><span>${on ? onLabel : offLabel}</span>
+  </button>`;
+}
+
+function PlayerPreview({ e, kind }) {
   if (kind === 'party') return null;
   const hiddenFacts = (e.facts || []).filter(f => !f.known).length;
   return html`<section class=${`w-pview ${e.known ? '' : 'off'}`}>
-    <header><b>Ce que voient les joueurs</b>
-      ${e.known ? null : html`<button type="button" class="btn tiny" onClick=${() => save(keyId, { known: true })}>Révéler</button>`}</header>
+    <header><b>Ce que voient les joueurs</b></header>
     ${e.known ? html`<${PlayerBody} e=${e} />`
-      : kind === 'state' ? html`<p class="muted small">Seulement son nom, écrit sur la carte.</p>`
-        : html`<p class="muted small">Rien : ce lieu est caché.</p>`}
-    ${e.known && hiddenFacts ? html`<p class="muted small">${t('{n} info(s) encore cachée(s).', { n: hiddenFacts })}</p>` : null}
+      : kind === 'state' ? html`<p class="w-pview-none">Seulement son nom, écrit sur la carte.</p>`
+        : html`<p class="w-pview-none">Rien : ce lieu est caché.</p>`}
+    ${e.known && hiddenFacts ? html`<p class="w-pview-more">${t('{n} info(s) encore cachée(s).', { n: hiddenFacts })}</p>` : null}
   </section>`;
 }
 
@@ -700,7 +804,7 @@ function Card() {
   return html`<aside class="w-card">
     <header>
       <div>
-        <p class="w-kind">${kindLabel}${e.known && dm ? html` · <span class="w-known">connu des joueurs</span>` : dm && !party && kind !== 'state' ? html` · <span class="w-hidden">caché</span>` : null}</p>
+        <p class="w-kind">${kindLabel}</p>
         <h2>${kind === 'marker' ? `${e.icon} ` : ''}${e.num ? html`<span class="w-num">${e.num}</span> ` : null}${title}</h2>
         ${dm && e.origName && e.origName !== e.name ? html`<p class="muted small">Dans Azgaar : ${e.origName}</p>` : null}
       </div>
@@ -710,7 +814,9 @@ function Card() {
     ${chips.length ? html`<p class="w-chips">${chips.map(c => html`<span class="badge">${c}</span>`)}</p>` : null}
     ${plan ? html`<p><button type="button" class="btn small" onClick=${() => openMap(plan.id)}>${t('Ouvrir la carte de {name}', { name: plan.name })} ›</button></p>` : null}
     ${!dm && kind !== 'party' ? html`<${PlayerBody} e=${e} />` : null}
-    ${dm ? html`<${PlayerPreview} e=${e} kind=${kind} keyId=${key} />` : null}
+    ${dm && !party ? html`<${Switch} on=${!!e.known} onLabel="Visible par les joueurs" offLabel="Caché aux joueurs"
+      title=${e.known ? 'Clic pour le cacher' : 'Clic pour le montrer aux joueurs'} onClick=${() => save(key, { known: !e.known })} />` : null}
+    ${dm ? html`<${PlayerPreview} e=${e} kind=${kind} />` : null}
     ${dm ? html`<${DmEdit} e=${e} keyId=${key} kind=${kind} openNote=${openNote} setOpenNote=${setOpenNote} />` : null}
   </aside>`;
 }
@@ -723,11 +829,14 @@ function FactsEditor({ e, keyId }) {
   const commit = next => { setRows(next); if (JSON.stringify(next.filter(f => f.text.trim())) !== sig) save(keyId, { facts: next.filter(f => f.text.trim()) }); };
   const at = (i, patch) => rows.map((x, j) => (j === i ? { ...x, ...patch } : x));
   return html`<div class="w-facts-edit">
-    <div class="w-field">Infos à révéler <small class="muted">cochée = visible des joueurs</small></div>
-    ${rows.map((f, i) => html`<div class="w-fact-row" key=${f.id || `n${i}`}>
-      <input type="checkbox" checked=${!!f.known} title="Révélée aux joueurs" onChange=${ev => commit(at(i, { known: ev.target.checked }))} />
-      <textarea class="txt" rows="2" value=${f.text} placeholder="Ce que le groupe peut apprendre ici." onInput=${ev => setRows(at(i, { text: ev.target.value }))} onBlur=${() => commit(rows)}></textarea>
-      <button type="button" class="icon-btn" title="Retirer cette info" onClick=${() => commit(rows.filter((_, j) => j !== i))}>✕</button>
+    <div class="w-field">Infos à révéler</div>
+    ${rows.map((f, i) => html`<div class=${`w-fact-row ${f.known ? 'on' : 'off'}`} key=${f.id || `n${i}`}>
+      <div class="w-fact-head">
+        <${Switch} small on=${!!f.known} onLabel="Révélée" offLabel="Cachée" title=${f.known ? 'Les joueurs la voient : clic pour la cacher' : 'Clic pour la révéler aux joueurs'}
+          onClick=${() => commit(at(i, { known: !f.known }))} />
+        <button type="button" class="icon-btn" title="Retirer cette info" onClick=${() => commit(rows.filter((_, j) => j !== i))}>✕</button>
+      </div>
+      <textarea class="txt" rows=${Math.max(2, Math.ceil((f.text || '').length / 42))} value=${f.text} placeholder="Ce que le groupe peut apprendre ici." onInput=${ev => setRows(at(i, { text: ev.target.value }))} onBlur=${() => commit(rows)}></textarea>
     </div>`)}
     <button type="button" class="btn tiny" onClick=${() => setRows([...rows, { id: '', text: '', known: false }])}>+ Info</button>
   </div>`;
@@ -737,7 +846,7 @@ function DmEdit({ e, keyId, kind, openNote, setOpenNote }) {
   const imgRef = useRef(null);
   if (kind === 'party') {
     return html`<div class="w-edit">
-      <label class="check"><input type="checkbox" checked=${e.known !== false} onChange=${ev => save('party', { known: ev.target.checked })} /> Visible des joueurs</label>
+      <${Switch} on=${e.known !== false} onLabel="Visible par les joueurs" offLabel="Caché aux joueurs" onClick=${() => save('party', { known: e.known === false })} />
       <${Field} label="Étiquette" value=${e.label} onSave=${v => save('party', { label: v })} />
       <div class="row-btns">
         <button type="button" class="btn small" onClick=${() => { S.mode = 'party'; refresh(); }}>Déplacer le groupe</button>
@@ -755,14 +864,13 @@ function DmEdit({ e, keyId, kind, openNote, setOpenNote }) {
     try { const a = await uploadImage(f, 'image', tx('Atlas')); await save(keyId, { image: a.ref }); } catch (x) { toast(x.message, 'error'); }
   };
   return html`<div class="w-edit">
-    <label class="check"><input type="checkbox" checked=${!!e.known} onChange=${ev => save(keyId, { known: ev.target.checked })} /> Connu des joueurs</label>
     <${Field} label="Nom" value=${e.name} placeholder=${e.origName} onSave=${v => save(keyId, { name: v })} />
     ${named ? html`<${Field} label="Nom complet" value=${e.full} placeholder=${e.origName} onSave=${v => save(keyId, { full: v })} />` : null}
     ${atlasPlace ? html`<div class="w-row2">
       <${Field} label="Genre" value=${e.kind} placeholder="taverne, quartier, temple…" onSave=${v => save(keyId, { kind: v })} />
       <${Field} label="Numéro" value=${e.num} placeholder="7" onSave=${v => save(keyId, { num: v })} />
     </div>
-    <label class="check"><input type="checkbox" checked=${e.label !== false} onChange=${ev => save(keyId, { label: ev.target.checked })} /> Nom écrit sur la carte</label>` : null}
+    <${Switch} small on=${e.label !== false} onLabel="Nom écrit sur la carte" offLabel="Nom pas écrit sur la carte" onClick=${() => save(keyId, { label: e.label === false })} />` : null}
     ${S.data.vault ? html`<${Field} label="Note du coffre" value=${e.note} placeholder="Dossier/Note.md" list="w-notes" onSave=${v => save(keyId, { note: v.trim() })} />` : null}
     ${e.note && S.data.vault ? html`<button type="button" class="btn tiny ghost" onClick=${() => setOpenNote(!openNote)}>${openNote ? 'Masquer la note' : 'Lire la note'}</button>` : null}
     ${e.note && openNote ? html`<${NoteView} file=${e.note} />` : null}
@@ -894,8 +1002,8 @@ function Side() {
       <button type="button" class="w-side-item" onClick=${() => openMap(WORLD)}><span class="w-side-ico">🌍</span><span class="w-side-name">Carte du monde</span>${dm && !l.world.exists ? html`<small class="w-tag">vide</small>` : null}</button>
     </div>` : null}
     ${l.maps.map(m => html`<div key=${m.id} class=${`w-side-row ${S.src === m.id ? 'on' : ''}`}>
-      <button type="button" class="w-side-item" onClick=${() => openMap(m.id)}><span class="w-side-ico">🗺</span><span class="w-side-name">${m.name}</span>${dm && !m.known ? html`<small class="w-tag">cachée</small>` : null}</button>
-      ${dm ? html`<button type="button" class=${`icon-btn w-eye ${m.known ? 'on' : ''}`} title=${m.known ? 'Visible des joueurs : clic pour la cacher' : 'Cachée aux joueurs : clic pour la montrer'} onClick=${() => patchMap(m.id, { known: !m.known })}>${m.known ? '👁' : '—'}</button>` : null}
+      <button type="button" class="w-side-item" onClick=${() => openMap(m.id)}><span class="w-side-ico">🗺</span><span class="w-side-name">${m.name}</span></button>
+      ${dm ? html`<${Switch} small on=${!!m.known} onLabel="Visible" offLabel="Cachée" title=${m.known ? 'Visible des joueurs : clic pour la cacher' : 'Cachée aux joueurs : clic pour la montrer'} onClick=${() => patchMap(m.id, { known: !m.known })} />` : null}
     </div>`)}
     ${dm && cur ? html`<${MapTools} m=${cur} />` : null}
     ${dm ? html`<button type="button" class=${`btn small w-side-add ${S.newMap ? 'on' : ''}`} onClick=${() => { S.newMap = !S.newMap; refresh(); }}>+ Nouvelle carte</button>
@@ -904,6 +1012,12 @@ function Side() {
 }
 
 // ---------------------------------------------------------------- Barre du haut
+
+function setLabels(dir) {
+  S.labelStep = Math.max(0, Math.min(LABEL_STEPS.length - 1, S.labelStep + dir));
+  LS.set('atlas.labels', S.labelStep);
+  refresh();
+}
 
 function TopBar() {
   const d = S.data;
@@ -941,10 +1055,17 @@ function TopBar() {
         <button type="button" class=${`btn small ${S.mode === 'add' ? 'on' : ''}`} disabled=${S.playerView} title=${atlasMap ? 'Un lieu : une taverne, un temple, une porte…' : 'Un lieu absent d\'Azgaar : donjon, ruine, camp…'} onClick=${() => setMode('add')}>+ Lieu</button>
         ${atlasMap ? html`<button type="button" class=${`btn small ${S.mode === 'zone' ? 'on' : ''}`} disabled=${S.playerView} title="Une zone cliquable : un quartier, une forêt, un domaine" onClick=${() => setMode('zone')}>+ Zone</button>` : null}
         <button type="button" class=${`btn small ${S.mode === 'party' ? 'on' : ''}`} disabled=${S.playerView} onClick=${() => setMode('party')}>⚑ Groupe</button>
-        <button type="button" class=${`btn small ${S.playerView ? 'on' : ''}`} title="Voir la carte comme les joueurs" onClick=${() => { S.playerView = !S.playerView; S.mode = null; S.draft = null; refresh(); }}>${S.playerView ? 'Vue joueurs' : 'Vue MJ'}</button>
+        <div class="w-seg" role="group" aria-label="Vue">
+          <button type="button" class=${S.playerView ? '' : 'on'} title="Tout, caché compris" onClick=${() => { S.playerView = false; refresh(); }}>Vue MJ</button>
+          <button type="button" class=${S.playerView ? 'on' : ''} title="Seulement ce que les joueurs voient" onClick=${() => { S.playerView = true; S.mode = null; S.draft = null; refresh(); }}>Vue joueurs</button>
+        </div>
         ${d.mode === 'azgaar' ? html`<button type="button" class="btn small" disabled=${S.playerView} title="Réécrit les noms corrigés dans le fichier .map, pour Azgaar" onClick=${writeMap}>Écrire dans le .map</button>
           <a class="btn small" href=${W('/download')} download title="Télécharger le .map, avec les noms écrits">⤓ .map</a>` : null}
         ${!atlasMap ? html`<button type="button" class="btn small" disabled=${S.playerView} title="Remplacer la carte : un .map d'Azgaar ou une image" onClick=${() => { S.mode = null; S.upload = true; refresh(); }}>Changer de carte</button>` : null}` : null}
+      ${ready ? html`<div class="w-seg" role="group" aria-label="Taille des noms">
+        <button type="button" disabled=${S.labelStep <= 0} title="Noms plus petits" onClick=${() => setLabels(-1)}>A−</button>
+        <button type="button" disabled=${S.labelStep >= LABEL_STEPS.length - 1} title="Noms plus gros" onClick=${() => setLabels(1)}>A+</button>
+      </div>` : null}
       <button type="button" class="btn small" title="Toute la carte" onClick=${() => setView(fullView())}>⤢</button>
     </div>` : null}
     ${menu && !atlasMap ? html`<div class="w-layers" onPointerLeave=${() => setMenu(false)}>
